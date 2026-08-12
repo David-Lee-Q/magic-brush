@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>使用帮助 · 神笔马良</title>
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="styles.css?v=44">
 <style>
   body { padding-top: 64px; }
   .help-header {
@@ -34,6 +34,7 @@
     border-left: 2px solid transparent;
   }
   .help-toc a:hover { background: var(--paper); color: var(--accent); border-left-color: var(--accent); }
+  .help-toc a.active { background: var(--paper); color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
   .toc-level-0 { font-weight: 600; color: var(--ink) !important; }
   .toc-level-1 { padding-left: 20px; font-size: 12px !important; }
   .toc-level-2 { padding-left: 30px; font-size: 11px !important; color: #999 !important; }
@@ -80,26 +81,60 @@
 
     <h2>快速上手</h2>
     <p>神笔马良是一款 AI 文生图工具：输入一句话描述，即可自动生成对应画面的图片，也支持基于参考图生成相似风格的新图。</p>
-    <div class="help-step"><b>第一步：</b>在左侧输入框中输入画面描述（支持中文），例如「一只飞行的龙，水墨风格，气势磅礴」。</div>
+    <div class="help-step"><b>第一步：</b>在左侧输入框中输入画面描述（支持中文），例如「一只在月光下展翅的仙鹤，仙气飘飘」。</div>
     <div class="help-step"><b>第二步：</b>选择风格、尺寸与数量。</div>
-    <div class="help-step"><b>第三步：</b>点击「开始生成」，等待毛笔作画动画结束，结果会显示在右侧。</div>
+    <div class="help-step"><b>第三步：</b>点击「开始生成」，等待画面生成，结果会显示在中间结果区，可预览、缩放与下载。</div>
     <figure>
       <img src="docs/screenshots/01-main-text2img.png" alt="生成器主界面">
-      <figcaption>生成器主界面：左侧配置参数，右侧展示生成结果</figcaption>
+      <figcaption>主界面：左侧配置参数，中间展示生成结果（顶部为生成流程），右侧为历史记录，底部页脚为联系方式</figcaption>
     </figure>
 
-    <h2>生成图片</h2>
-    <p>生成面板位于页面左侧，包含模式、提示词、风格、尺寸与数量等选项。</p>
+    <h2>生成流程与预览</h2>
+    <p>页面采用左中右三栏布局。生成面板位于左侧，包含模式、提示词、风格、尺寸与数量等选项；中间为核心结果区；右侧为历史记录。</p>
 
-    <h3>选择生成模式</h3>
-    <p>页面顶部提供两种模式：</p>
+    <h3>生成流程</h3>
+    <p>结果区顶部展示完整生成流程，直观呈现一次生成经历的五个阶段：</p>
     <ul>
-      <li><b>文生图</b>：仅凭文字描述生成新图。</li>
-      <li><b>图生图</b>：上传一张参考图，基于参考图内容与提示词生成新图。该模式需要切换至「自定义 API」数据源。</li>
+      <li><b>描述输入</b>：接收并解析你的提示词。</li>
+      <li><b>理解转写</b>：中文提示词自动翻译为英文，提升模型理解。</li>
+      <li><b>风格增强</b>：结合所选风格附加画面细节描述。</li>
+      <li><b>成图输出</b>：模型生成图片并回传。</li>
+      <li><b>预览下载</b>：在结果区预览，可放大查看或下载到本地。</li>
+    </ul>
+
+    <h3>预览效果</h3>
+    <p>生成完成后，结果区会以缩略图网格展示全部图片。点击任意缩略图，弹出灯箱按原图比例预览。</p>
+    <h4>灯箱工具栏</h4>
+    <ul>
+      <li><b>缩小 / 放大</b>：点击工具栏的「−」/「+」按钮，或按住 <code>Ctrl / ⌘</code> 滚动鼠标滚轮缩放，范围为 50%-400%。</li>
+      <li><b>还原</b>：点击「还原」按钮，或按 <code>0</code> 键，回到 100% 原始比例。</li>
+      <li><b>下载</b>：点击「下载」将当前预览图片保存为 PNG 文件。</li>
+      <li><b>关闭</b>：点击右上角「关闭」按钮，或按 <code>Esc</code>、点击弹窗外部区域。</li>
+    </ul>
+    <p>工具栏左侧实时显示当前缩放比例（如 100%、175%）。图片始终按原始比例等比缩放，自动适配窗口大小，不出现滚动条。</p>
+    <h4>多图与平移</h4>
+    <ul>
+      <li><b>多图切换</b>：一次生成多张时，工具栏提供「上一张 / 下一张」，也可按键盘 <code>←</code> / <code>→</code> 切换；右上角显示当前序号（如 1 / 3）。</li>
+      <li><b>拖拽平移</b>：放大后按住图片拖动，可查看画面的其他区域。</li>
     </ul>
     <figure>
+      <img src="docs/screenshots/07-lightbox.png" alt="灯箱预览">
+      <figcaption>灯箱预览：支持缩放、还原、拖拽平移、多图切换与下载</figcaption>
+    </figure>
+    <blockquote><p>结果区与右侧历史记录面板高度对齐，图片较多时在各自区域内滚动查看。</p></blockquote>
+
+    <h2>生成图片</h2>
+
+    <h3>选择生成模式</h3>
+    <p>控制面板顶部提供两种模式：</p>
+    <ul>
+      <li><b>文生图</b>：仅凭文字描述生成新图。</li>
+      <li><b>图生图</b>：上传一张参考图，基于参考图内容与提示词生成新图。该模式需要切换至「自定义 API」数据源；使用内置服务时「图生图」标签会置灰，点击将弹出切换提示。</li>
+    </ul>
+    <p>图生图模式下点击「上传参考图」选择本地图片（不超过 10MB），上传后立即显示预览缩略图，可点击右上角按钮移除并重新上传。</p>
+    <figure>
       <img src="docs/screenshots/02-mode-img2img.png" alt="图生图模式">
-      <figcaption>图生图模式：点击「上传参考图」选择本地图片</figcaption>
+      <figcaption>图生图模式：参考图已上传并显示预览</figcaption>
     </figure>
 
     <h3>输入提示词</h3>
@@ -127,9 +162,9 @@
     </figure>
 
     <h3>设置数量</h3>
-    <p>单次可生成 1-3 张。数量越多耗时越长，建议按需选择。</p>
+    <p>单次可生成 1-4 张。数量越多耗时越长，建议按需选择。</p>
 
-    <h2>切换自定义 API</h2>
+    <h2>自定义 API</h2>
     <p>使用内置服务开箱即用；如需图生图、任意尺寸或更好的生成效果，可切换至自定义 API。</p>
     <h3>配置步骤</h3>
     <ol>
@@ -142,31 +177,41 @@
       <img src="docs/screenshots/04-settings.png" alt="API 设置弹窗">
       <figcaption>在设置弹窗中填写自定义 API 配置</figcaption>
     </figure>
-    <blockquote><p>API 基础地址兼容 OpenA兼容接口，支持 <code>/images/generations</code>（文生图）与 <code>/images/edits</code>（图生图）。</p></blockquote>
+    <blockquote><p>API 基础地址兼容 OpenAI 格式接口，支持 <code>/images/generations</code>（文生图）与 <code>/images/edits</code>（图生图）。</p></blockquote>
     <h3>校验配置</h3>
-    <p>配置不确定是否正确时，可在设置弹窗底部点击「模型调试」，检测接口连通性、查看模型列表，并实际生成一张测试图验证。</p>
+    <p>配置不确定是否正确时，可在设置弹窗底部点击「模型调试」，检测接口连通性、查看模型列表，并实际生成一张测试图验证。模型是否可用以调试结果为准。</p>
     <figure>
-      <img src="docs/screenshots/05-debug.png" alt="模型调试弹窗">
-      <figcaption>模型调试弹窗：点击「开始调试」检测接口与模型</figcaption>
+      <img src="docs/screenshots/08-debug.png" alt="模型调试弹窗">
+      <figcaption>模型调试弹窗：依次展示连接信息、模型列表与生成请求结果</figcaption>
     </figure>
 
-    <h2>管理历史记录</h2>
-    <p>成功生成的图片会自动保存到浏览器本地（最多保留 50 条），刷新页面不会丢失。</p>
+    <h2>版本信息</h2>
+    <p>点击页面顶栏的信息图标按钮，可查看当前版本号、发布日期与更新内容。</p>
+    <figure>
+      <img src="docs/screenshots/05-version.png" alt="版本信息弹窗">
+      <figcaption>版本信息弹窗：展示版本号与发布日期</figcaption>
+    </figure>
+
+    <h2>历史记录</h2>
+    <p>历史记录面板位于页面右侧栏，成功生成的图片会自动保存到浏览器本地（最多保留 50 条），刷新页面不会丢失。每条记录展示模式标签（线框样式，文生图为金色、图生图为蓝色）、时间、尺寸与风格，风格以中文显示。</p>
     <ul>
-      <li><b>预览</b>：点击历史缩略图可放大查看。</li>
+      <li><b>预览</b>：点击历史缩略图可放大查看，支持缩放与多图切换。</li>
       <li><b>下载</b>：放大预览后点击「下载」保存图片。</li>
-      <li><b>清空</b>：点击「清空历史」可删除全部记录。</li>
+      <li><b>删除</b>：鼠标悬停到记录右上角，点击删除图标可移除单条记录。</li>
+      <li><b>清空</b>：点击「清空」可删除全部记录。</li>
     </ul>
     <figure>
       <img src="docs/screenshots/06-history.png" alt="历史记录面板">
-      <figcaption>历史记录面板：点击缩略图放大预览</figcaption>
+      <figcaption>历史记录面板：每条记录含模式标签、时间、尺寸与风格</figcaption>
     </figure>
 
     <h2>常见问题</h2>
     <h3>生成耗时多久？</h3>
     <p>耗时与模型及尺寸强相关：小尺寸（256x256）约 5 秒，中尺寸（512）约 10-30 秒，大尺寸（1024）约 80-130 秒。多个任务会排队串行执行，请耐心等待。</p>
     <h3>内置服务为什么不能图生图？</h3>
-    <p>内置图像服务暂未开放图生图能力，请切换至「自定义 API」模式后使用。</p>
+    <p>内置图像服务暂未开放图生图能力，页面中「图生图」标签会置灰且不可选中。请切换至「自定义 API」模式，且该接口需支持 <code>/images/edits</code> 并配置可用的图像编辑模型。</p>
+    <h3>自定义 API 提示模型不存在怎么办？</h3>
+    <p>在设置弹窗中点击「模型调试」查看接口实际返回的模型列表，确认模型名称填写正确。部分网关的模型列表可能不完整，可结合接口文档确认模型名。</p>
     <h3>生成失败或图片显示异常怎么办？</h3>
     <ul>
       <li>提示「生成失败」：请检查网络与接口配置，自定义 API 模式请确认地址、密钥正确且服务可达。</li>
@@ -174,6 +219,8 @@
     </ul>
     <h3>如何提升生成效果？</h3>
     <p>提示词越具体越好（包含主体、环境、光线、风格）；自定义 API 模式下建议搭配风格选项，中文提示词会自动增强。</p>
+    <h3>如何联系与反馈？</h3>
+    <p>页面底部页脚展示项目主页与反馈邮箱，欢迎提交使用建议或问题。</p>
 
   </main>
 </div>
@@ -193,6 +240,7 @@
   var headings = document.querySelectorAll("#help-content h2, #help-content h3, #help-content h4");
   if (!headings.length) { toc.innerHTML = ""; return; }
   toc.innerHTML = "";
+  var links = [];
   headings.forEach(function (h, i) {
     h.id = "h-" + i;
     var a = document.createElement("a");
@@ -200,7 +248,54 @@
     a.textContent = h.textContent.trim();
     a.className = "toc-level-" + (h.tagName === "H2" ? "0" : h.tagName === "H3" ? "1" : "2");
     toc.appendChild(a);
+    links.push(a);
   });
+
+  var OFFSET = 84;
+  var currentId = null;
+  function setActive(h) {
+    var id = h ? h.id : "";
+    if (id === currentId) return;
+    currentId = id;
+    links.forEach(function (a) {
+      a.classList.toggle("active", a.getAttribute("href") === "#" + id);
+    });
+    var active = toc.querySelector("a.active");
+    if (active) {
+      var t = toc;
+      var top = active.offsetTop - t.clientHeight / 2;
+      t.scrollTop = Math.max(0, Math.min(top, t.scrollHeight - t.clientHeight));
+    }
+  }
+
+  var spy = new IntersectionObserver(function (entries) {
+    var vis = entries.filter(function (e) { return e.isIntersecting; });
+    if (!vis.length) return;
+    var best = vis[0];
+    for (var i = 1; i < vis.length; i++) {
+      if (vis[i].boundingClientRect.top < best.boundingClientRect.top) best = vis[i];
+    }
+    setActive(best.target);
+  }, { rootMargin: "-" + OFFSET + "px 0px -70% 0px", threshold: 0 });
+  headings.forEach(function (h) { spy.observe(h); });
+
+  window.addEventListener("scroll", function () {
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 12) {
+      setActive(headings[headings.length - 1]);
+    }
+  }, { passive: true });
+
+  links.forEach(function (a) {
+    a.addEventListener("click", function (e) {
+      e.preventDefault();
+      var el = document.getElementById(a.getAttribute("href").slice(1));
+      if (!el) return;
+      var top = el.getBoundingClientRect().top + window.scrollY - OFFSET;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    });
+  });
+
+  setActive(headings[0]);
 })();
 </script>
 </body>

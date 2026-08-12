@@ -90,6 +90,19 @@
       el.textContent = "未配置";
       el.classList.remove("ok");
     }
+    syncModeAvailability();
+  }
+
+  function syncModeAvailability() {
+    var s = loadSettings();
+    var builtin = s.datasource !== "custom";
+    document.querySelectorAll(".mode-tab").forEach(function (tab) {
+      var dis = builtin && tab.dataset.mode === "img2img";
+      tab.disabled = false;
+      tab.setAttribute("aria-disabled", String(dis));
+      tab.classList.toggle("is-disabled", dis);
+    });
+    if (builtin && state.mode === "img2img") setMode("text2img");
   }
 
   function showError(msg) {
@@ -330,10 +343,13 @@
     var fit = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
     var w = img.naturalWidth * fit * s;
     var h = img.naturalHeight * fit * s;
-    vp.style.width = Math.round(Math.min(w, maxW)) + "px";
-    vp.style.height = Math.round(Math.min(h, maxH)) + "px";
-    img.style.width = Math.round(w) + "px";
-    img.style.height = "auto";
+    var ratio = Math.min(1, maxW / w, maxH / h);
+    w *= ratio;
+    h *= ratio;
+    vp.style.width = Math.round(w) + "px";
+    vp.style.height = Math.round(h) + "px";
+    img.style.width = "100%";
+    img.style.height = "100%";
   }
 
   function lightboxPrev() {
@@ -486,6 +502,12 @@
       p(d.getHours()) + ":" + p(d.getMinutes());
   }
 
+  function styleLabel(key) {
+    if (!key) return "";
+    var opt = $("style").querySelector('option[value="' + key + '"]');
+    return opt ? opt.textContent : key;
+  }
+
   function renderHistory() {
     var listEl = $("history-list");
     var records = loadHistory();
@@ -528,7 +550,7 @@
       var metaText = document.createElement("span");
       metaText.className = "history-item-time";
       var sizeText = (rec.params && rec.params.size) || rec.size || "";
-      var styleText = (rec.params && rec.params.style) || rec.style || "";
+      var styleText = styleLabel((rec.params && rec.params.style) || rec.style || "");
       var metaParts = [formatTime(rec.ts)];
       if (sizeText) metaParts.push(sizeText);
       if (styleText) metaParts.push(styleText);
@@ -732,7 +754,7 @@
     refWrap.classList.toggle("hidden", mode !== "img2img");
     if (mode === "text2img") {
       $("ref-input").value = "";
-      $("ref-box").classList.remove("hidden");
+      $("btn-upload-ref").classList.remove("hidden");
       $("ref-preview").classList.add("hidden");
       state.refDataUrl = null;
     }
@@ -753,6 +775,14 @@
 
   function closeSettings() {
     $("settings-modal").classList.add("hidden");
+  }
+
+  function openVersionModal() {
+    $("version-modal").classList.remove("hidden");
+  }
+
+  function closeVersionModal() {
+    $("version-modal").classList.add("hidden");
   }
 
   function openDebugModal() {
@@ -879,7 +909,13 @@
 
   function bindEvents() {
     document.querySelectorAll(".mode-tab").forEach(function (tab) {
-      tab.addEventListener("click", function () { setMode(tab.dataset.mode); });
+      tab.addEventListener("click", function () {
+        if (tab.classList.contains("is-disabled")) {
+          showToast("内置服务暂不支持图生图，请在设置中切换「自定义 API」模式");
+          return;
+        }
+        setMode(tab.dataset.mode);
+      });
     });
 
     $("btn-generate").addEventListener("click", doGenerate);
@@ -905,7 +941,7 @@
       reader.onload = function () {
         state.refDataUrl = reader.result;
         $("ref-img").src = reader.result;
-        $("ref-box").classList.add("hidden");
+        $("btn-upload-ref").classList.add("hidden");
         $("ref-preview").classList.remove("hidden");
         clearError();
       };
@@ -918,13 +954,19 @@
     $("btn-remove-ref").addEventListener("click", function () {
       $("ref-input").value = "";
       state.refDataUrl = null;
-      $("ref-box").classList.remove("hidden");
+      $("btn-upload-ref").classList.remove("hidden");
       $("ref-preview").classList.add("hidden");
       $("ref-img").src = "";
     });
 
     $("btn-settings").addEventListener("click", openSettings);
     $("btn-close-settings").addEventListener("click", closeSettings);
+    $("btn-version").addEventListener("click", openVersionModal);
+    $("btn-close-version").addEventListener("click", closeVersionModal);
+    $("btn-version-ok").addEventListener("click", closeVersionModal);
+    $("version-modal").addEventListener("click", function (e) {
+      if (e.target === $("version-modal")) closeVersionModal();
+    });
     $("btn-save-settings").addEventListener("click", saveSettingsFromUI);
     $("btn-debug-model").addEventListener("click", openDebugModal);
     $("btn-close-debug").addEventListener("click", closeDebugModal);
