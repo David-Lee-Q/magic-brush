@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>神笔马良 · 文生图工具</title>
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="styles.css?v=29">
 </head>
 <body>
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -97,6 +97,7 @@
             <option value="256x256">256 x 256（1:1）</option>
           </optgroup>
           <optgroup label="电脑屏幕">
+            <option value="1920x1080">1920 x 1080（16:9）</option>
             <option value="1280x720">1280 x 720（16:9）</option>
             <option value="1280x800">1280 x 800（16:10）</option>
             <option value="1024x768">1024 x 768（4:3）</option>
@@ -112,7 +113,6 @@
           <input type="number" id="size-cw" min="64" max="2048" step="64" value="1024" placeholder="宽">
           <span class="size-custom-x">×</span>
           <input type="number" id="size-ch" min="64" max="2048" step="64" value="1024" placeholder="高">
-          <span class="size-custom-px">px</span>
         </div>
       </div>
       <div class="field">
@@ -178,29 +178,44 @@
         <p>输入提示词，点击「开始生成」<br>等待画面浮现</p>
       </div>
     </div>
-  </section>
 
-  <aside class="panel history-panel">
-    <div class="history-header">
-      <h2>历史记录</h2>
-      <button id="btn-clear-history" class="btn btn-ghost btn-small" type="button">清空</button>
-    </div>
-    <div id="history-list" class="history-list">
-      <div class="history-empty">暂无记录</div>
-    </div>
-  </aside>
+    <aside class="history-panel">
+      <div class="history-header">
+        <h2>历史记录</h2>
+        <button id="btn-clear-history" class="btn btn-ghost btn-small" type="button">清空</button>
+      </div>
+      <div id="history-list" class="history-list">
+        <div class="history-empty">暂无记录</div>
+      </div>
+    </aside>
+  </section>
 </main>
 
 <div id="lightbox" class="lightbox hidden">
   <div class="lightbox-inner">
-    <button id="btn-close-lightbox" class="lightbox-close" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <line x1="18" y1="6" x2="6" y2="18"/>
-        <line x1="6" y1="6" x2="18" y2="18"/>
-      </svg>
+    <div class="lightbox-toolbar">
+      <button id="btn-zoom-out" class="lightbox-tool" type="button" aria-label="缩小">−</button>
+      <span id="lightbox-scale" class="lightbox-scale">100%</span>
+      <button id="btn-zoom-in" class="lightbox-tool" type="button" aria-label="放大">+</button>
+      <button id="btn-zoom-reset" class="lightbox-tool" type="button">还原</button>
+      <a id="lightbox-download" class="btn btn-primary btn-small" download>下载</a>
+      <button id="btn-close-lightbox" class="lightbox-tool lightbox-close" type="button" aria-label="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="lightbox-viewport" id="lightbox-viewport">
+      <img id="lightbox-img" alt="大图预览">
+    </div>
+    <button id="btn-prev-lightbox" class="lightbox-nav lightbox-prev" type="button" aria-label="上一张">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
     </button>
-    <img id="lightbox-img" alt="大图预览">
-    <a id="lightbox-download" class="btn btn-primary btn-small" download>下载</a>
+    <button id="btn-next-lightbox" class="lightbox-nav lightbox-next" type="button" aria-label="下一张">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+    <div id="lightbox-counter" class="lightbox-counter"></div>
   </div>
 </div>
 
@@ -271,6 +286,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=16"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>

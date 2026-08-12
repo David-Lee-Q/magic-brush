@@ -16,7 +16,7 @@
   var PRESET_SIZES = [
     "1024x1024", "1536x1024", "1024x1536", "1792x1024", "1024x1792",
     "512x512", "256x256",
-    "1280x720", "1280x800", "1024x768",
+    "1920x1080", "1280x720", "1280x800", "1024x768",
     "720x1280", "720x1560", "768x1024"
   ];
 
@@ -27,7 +27,10 @@
     refDataUrl: null,
     generating: false,
     lastImages: [],
-    lightboxUrl: null
+    lightboxUrl: null,
+    lightboxImages: [],
+    lightboxIndex: 0,
+    lightboxScale: 1
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -239,7 +242,7 @@
       card.appendChild(actions);
 
       card.addEventListener("click", function () {
-        openLightbox(img, idx);
+        openLightbox(img, idx, state.lastImages);
       });
 
       grid.appendChild(card);
@@ -277,21 +280,91 @@
     grid.appendChild(scene);
   }
 
-  function openLightbox(image, idx) {
+  function openLightbox(image, idx, images) {
+    var list = (images && images.length) ? images : [image];
+    state.lightboxImages = list;
+    state.lightboxIndex = Math.min(Math.max(idx || 0, 0), list.length - 1);
+    state.lightboxScale = 1;
+    state.lightboxUrl = image && image.src ? image.src : "";
+    updateLightbox();
+    $("lightbox").classList.remove("hidden");
+  }
+
+  function toImageObject(item) {
+    if (typeof item === "string") return { src: item, b64: true };
+    return item;
+  }
+
+  function updateLightbox() {
+    var list = state.lightboxImages;
+    var i = state.lightboxIndex;
+    var current = toImageObject(list[i] || list[0]);
     var img = $("lightbox-img");
-    img.src = image.src;
+    var vp = $("lightbox-viewport");
+    vp.style.width = "";
+    vp.style.height = "";
+    img.style.width = "";
+    img.onload = applyLightboxScale;
+    img.src = current.src;
+    state.lightboxUrl = current.src;
+    applyLightboxScale();
     var dl = $("lightbox-download");
     dl.onclick = function () {
-      handleDownload(image, "shenbi-" + idx + "-" + Date.now() + ".png");
+      handleDownload(current, "shenbi-" + i + "-" + Date.now() + ".png");
     };
-    state.lightboxUrl = image.src;
-    $("lightbox").classList.remove("hidden");
+    var multi = list.length > 1;
+    $("btn-prev-lightbox").classList.toggle("hidden-nav", !multi);
+    $("btn-next-lightbox").classList.toggle("hidden-nav", !multi);
+    $("lightbox-counter").textContent = multi ? (i + 1) + " / " + list.length : "";
+  }
+
+  function applyLightboxScale() {
+    var s = state.lightboxScale || 1;
+    $("lightbox-scale").textContent = Math.round(s * 100) + "%";
+    var img = $("lightbox-img");
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    var vp = $("lightbox-viewport");
+    var cs = getComputedStyle(vp);
+    var maxW = parseFloat(cs.maxWidth) || window.innerWidth;
+    var maxH = parseFloat(cs.maxHeight) || window.innerHeight;
+    var fit = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
+    var w = img.naturalWidth * fit * s;
+    var h = img.naturalHeight * fit * s;
+    vp.style.width = Math.round(Math.min(w, maxW)) + "px";
+    vp.style.height = Math.round(Math.min(h, maxH)) + "px";
+    img.style.width = Math.round(w) + "px";
+    img.style.height = "auto";
+  }
+
+  function lightboxPrev() {
+    if (!state.lightboxImages || state.lightboxImages.length < 2) return;
+    state.lightboxIndex = (state.lightboxIndex + state.lightboxImages.length - 1) % state.lightboxImages.length;
+    updateLightbox();
+  }
+
+  function lightboxNext() {
+    if (!state.lightboxImages || state.lightboxImages.length < 2) return;
+    state.lightboxIndex = (state.lightboxIndex + 1) % state.lightboxImages.length;
+    updateLightbox();
+  }
+
+  function lightboxZoom(delta) {
+    state.lightboxScale = Math.min(4, Math.max(0.5, (state.lightboxScale || 1) + delta));
+    applyLightboxScale();
+  }
+
+  function resetLightboxScale() {
+    state.lightboxScale = 1;
+    applyLightboxScale();
   }
 
   function closeLightbox() {
     $("lightbox").classList.add("hidden");
     $("lightbox-img").src = "";
+    $("lightbox-counter").textContent = "";
     state.lightboxUrl = null;
+    state.lightboxImages = [];
+    state.lightboxScale = 1;
   }
 
   function addHistory(record) {
@@ -304,7 +377,106 @@
 
   function clearHistory() {
     saveHistory([]);
+    try { localStorage.setItem("mb.historySeeded", "1"); } catch (e) { /* ignore */ }
     renderHistory();
+  }
+
+  function removeHistory(id) {
+    saveHistory(loadHistory().filter(function (r) { return r.id !== id; }));
+    renderHistory();
+  }
+
+  function makeMockImage(kind) {
+    var canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    var ctx = canvas.getContext("2d");
+    if (kind === "ink") {
+      var g1 = ctx.createLinearGradient(0, 0, 256, 256);
+      g1.addColorStop(0, "#f5efe0");
+      g1.addColorStop(1, "#d8cbb0");
+      ctx.fillStyle = g1;
+      ctx.fillRect(0, 0, 256, 256);
+      ctx.fillStyle = "rgba(60,60,60,.6)";
+      ctx.beginPath();
+      ctx.moveTo(0, 210);
+      ctx.quadraticCurveTo(64, 150, 128, 200);
+      ctx.quadraticCurveTo(200, 150, 256, 210);
+      ctx.lineTo(256, 256);
+      ctx.lineTo(0, 256);
+      ctx.fill();
+      ctx.fillStyle = "#e8b24a";
+      ctx.beginPath();
+      ctx.arc(192, 70, 24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#333";
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(60, 180);
+      ctx.quadraticCurveTo(100, 150, 140, 170);
+      ctx.quadraticCurveTo(120, 130, 150, 115);
+      ctx.stroke();
+    } else {
+      var g2 = ctx.createLinearGradient(0, 0, 256, 256);
+      g2.addColorStop(0, "#1a1a3a");
+      g2.addColorStop(1, "#3a1060");
+      ctx.fillStyle = g2;
+      ctx.fillRect(0, 0, 256, 256);
+      ctx.fillStyle = "#12062a";
+      ctx.fillRect(16, 150, 42, 106);
+      ctx.fillRect(66, 128, 52, 128);
+      ctx.fillRect(126, 158, 62, 98);
+      ctx.fillRect(196, 138, 44, 118);
+      ctx.fillStyle = "#00e5ff";
+      ctx.fillRect(74, 134, 9, 9);
+      ctx.fillRect(92, 150, 9, 9);
+      ctx.fillStyle = "#ff2d78";
+      ctx.fillRect(134, 166, 9, 9);
+      ctx.fillRect(152, 156, 9, 9);
+      ctx.fillStyle = "#ffe600";
+      ctx.fillRect(204, 146, 7, 7);
+      ctx.fillRect(220, 160, 7, 7);
+    }
+    return canvas.toDataURL("image/png");
+  }
+
+  function makeMockRecords() {
+    return [
+      {
+        id: "mock-ink",
+        prompt: "一只在月光下展翅的仙鹤，仙气飘飘",
+        size: "512x512",
+        style: "水墨风",
+        count: 1,
+        ts: Date.now() - 3600000,
+        mode: "text2img",
+        images: [makeMockImage("ink")]
+      },
+      {
+        id: "mock-cyber",
+        prompt: "赛博朋克城市夜景，霓虹闪烁",
+        size: "1024x1024",
+        style: "赛博朋克",
+        count: 1,
+        ts: Date.now() - 7200000,
+        mode: "text2img",
+        images: [makeMockImage("cyber")]
+      }
+    ];
+  }
+
+  function seedMockHistory() {
+    try {
+      if (localStorage.getItem("mb.historySeeded")) return;
+      var existing = loadHistory();
+      if (!existing.length) {
+        saveHistory(makeMockRecords());
+      } else if (existing.every(function (r) { return String(r.id || "").indexOf("mock-") === 0; })) {
+        saveHistory(makeMockRecords());
+      }
+      localStorage.setItem("mb.historySeeded", "1");
+    } catch (e) { /* ignore */ }
   }
 
   function formatTime(ts) {
@@ -329,8 +501,42 @@
       var item = document.createElement("div");
       item.className = "history-item";
 
-      var head = document.createElement("div");
-      head.className = "history-item-head";
+      var del = document.createElement("button");
+      del.className = "history-item-del";
+      del.title = "删除该记录";
+      del.setAttribute("aria-label", "删除该记录");
+      del.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+        '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' +
+        "</svg>";
+      del.addEventListener("click", function (e) {
+        e.stopPropagation();
+        removeHistory(rec.id);
+      });
+
+      var info = document.createElement("div");
+      info.className = "history-item-info";
+      var p = document.createElement("div");
+      p.className = "history-item-prompt";
+      p.textContent = rec.prompt || "(无提示词)";
+      p.title = rec.prompt || "";
+      var meta = document.createElement("div");
+      meta.className = "history-item-meta";
+      var badge = document.createElement("span");
+      badge.className = "history-badge" + (rec.mode === "img2img" ? " history-badge-img" : " history-badge-text");
+      badge.textContent = rec.mode === "img2img" ? "图生图" : "文生图";
+      var metaText = document.createElement("span");
+      metaText.className = "history-item-time";
+      var sizeText = (rec.params && rec.params.size) || rec.size || "";
+      var styleText = (rec.params && rec.params.style) || rec.style || "";
+      var metaParts = [formatTime(rec.ts)];
+      if (sizeText) metaParts.push(sizeText);
+      if (styleText) metaParts.push(styleText);
+      metaText.textContent = metaParts.join(" · ");
+      meta.appendChild(badge);
+      meta.appendChild(metaText);
+      info.appendChild(p);
+      info.appendChild(meta);
 
       var thumbs = document.createElement("div");
       thumbs.className = "history-thumbs";
@@ -340,26 +546,14 @@
         im.alt = "缩略图";
         im.addEventListener("click", function (e) {
           e.stopPropagation();
-          openLightbox({ src: src, b64: true }, i);
+          openLightbox({ src: src, b64: true }, i, rec.images);
         });
         thumbs.appendChild(im);
       });
-      head.appendChild(thumbs);
 
-      var info = document.createElement("div");
-      info.className = "history-item-info";
-      var p = document.createElement("div");
-      p.className = "history-item-prompt";
-      p.textContent = rec.prompt || "(无提示词)";
-      p.title = rec.prompt || "";
-      var t = document.createElement("div");
-      t.className = "history-item-time";
-      t.textContent = formatTime(rec.ts) + (rec.mode === "img2img" ? " · 图生图" : " · 文生图");
-      info.appendChild(p);
-      info.appendChild(t);
-      head.appendChild(info);
-
-      item.appendChild(head);
+      item.appendChild(info);
+      item.appendChild(thumbs);
+      item.appendChild(del);
       item.addEventListener("click", function () {
         document.querySelectorAll(".history-item").forEach(function (el) {
           el.classList.remove("active");
@@ -759,12 +953,54 @@
     $("lightbox").addEventListener("click", function (e) {
       if (e.target === $("lightbox")) closeLightbox();
     });
+
+    $("btn-prev-lightbox").addEventListener("click", lightboxPrev);
+    $("btn-next-lightbox").addEventListener("click", lightboxNext);
+    $("btn-zoom-in").addEventListener("click", function () { lightboxZoom(0.25); });
+    $("btn-zoom-out").addEventListener("click", function () { lightboxZoom(-0.25); });
+    $("btn-zoom-reset").addEventListener("click", resetLightboxScale);
+
+    var vp = $("lightbox-viewport");
+    vp.addEventListener("wheel", function (e) {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        lightboxZoom(e.deltaY < 0 ? 0.25 : -0.25);
+      }
+    }, { passive: false });
+
+    (function bindDrag() {
+      var down = false, sx = 0, sy = 0, sl = 0, st = 0;
+      vp.addEventListener("mousedown", function (e) {
+        if (e.target !== $("lightbox-img")) return;
+        down = true;
+        vp.classList.add("dragging");
+        sx = e.clientX; sy = e.clientY;
+        sl = vp.scrollLeft; st = vp.scrollTop;
+      });
+      window.addEventListener("mousemove", function (e) {
+        if (!down) return;
+        vp.scrollLeft = sl - (e.clientX - sx);
+        vp.scrollTop = st - (e.clientY - sy);
+      });
+      window.addEventListener("mouseup", function () {
+        down = false;
+        vp.classList.remove("dragging");
+      });
+    })();
+
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {
         closeLightbox();
         closeSettings();
         closeDebugModal();
+        return;
       }
+      if ($("lightbox").classList.contains("hidden")) return;
+      if (e.key === "ArrowLeft") lightboxPrev();
+      else if (e.key === "ArrowRight") lightboxNext();
+      else if (e.key === "+" || e.key === "=") lightboxZoom(0.25);
+      else if (e.key === "-" || e.key === "_") lightboxZoom(-0.25);
+      else if (e.key === "0") resetLightboxScale();
     });
 
     $("prompt").addEventListener("input", function () {
@@ -776,6 +1012,7 @@
     $("prompt-hint").textContent = "支持中文描述，例如：一只飞行的龙，水墨风格，气势磅礴";
     refreshCfgStatus();
     initSizeFromSettings();
+    seedMockHistory();
     renderHistory();
     bindEvents();
   }
