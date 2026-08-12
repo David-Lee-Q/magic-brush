@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "imagegen": {
+      "type": "local",
+      "command": ["node", "server.js"],
+      "cwd": ".mcp/imagegen-bridge",
+      "enabled": true,
+      "environment": {
+        "IMG_URL": "https://8000-f7c2c497f2f22e08.code.cosmoplat.cn/sse",
+        "IMG_TOKEN": "${IMG_GEN_TOKEN}"
+      }
+    }
+  }
+}

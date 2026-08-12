@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>神笔马良 · 文生图工具</title>
+<link rel="stylesheet" href="styles.css?v=15">
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="icon-pen" viewBox="0 0 1024 1024">
+    <path fill="#CCCCCC" d="M418.42870247 512c-189.84351971 0-162.55258169 218.04581268-311.4845495 218.04581268-59.37063201 0-93.43873683-31.15176897-93.43873681-31.15176897s48.58350352 218.04581268 280.33278052 218.0458127c172.89231777 0 311.48454949-71.33423692 311.48454951-218.0458127 0-95.79168958-74.43284372-186.89404371-186.89404372-186.89404371z"/>
+    <path fill="#d81e06" d="M169.47967216 823.48454949c109.80998561 0 124.59050578-93.43873682 124.59050577-93.43873681-33.45501147 33.91897397-93.43873682 31.11862879-93.43873681 31.11862879 25.73334959-25.7002094 30.68780645-93.90269933 31.63230158-116.98483453-30.05814304 45.75001815-61.50817362 85.86620574-125.31958973 85.86620574-59.37063201 0-93.43873683-31.15176897-93.43873681-31.15176897s39.90077643 176.45488709 217.184168 211.53376737 38.97285139-15.65873492 63.39716386-55.79149261 63.39716387-55.79149261-77.08405811 15.50960412-124.60707587-31.15176897-124.60707587-31.15176898z"/>
+    <path fill="#6D5778" d="M543.26775959 387.40949422l-93.43873682 155.74227475 124.5905058 124.59050578 155.74227475-93.43873681z"/>
+    <path fill="#9B7CAB" d="M792.46534126 107.06014359c-93.43873682 0-249.18101157 280.33278053-249.18101157 280.33278054l186.87747363 186.91061381s280.33278053-155.74227475 280.33278052-249.18101156c0-31.16833906-186.89404371-218.06238277-218.02924258-218.06238279z"/>
+  </symbol>
+</svg>
+<header class="app-header">
+  <div class="header-inner">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <use href="#icon-pen"/>
+      </svg>
+      <div>
+        <h1>神笔马良</h1>
+        <p>AI 文生图 · 图生图</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="cfg-status" class="cfg-status">未配置</span>
+      <a href="help.html" class="btn btn-ghost btn-icon help-link" title="使用帮助" aria-label="使用帮助">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M9.2 9a2.8 2.8 0 0 1 5.5.8c0 1.9-2.7 2.4-2.7 4.1"/>
+          <line x1="12" y1="17.2" x2="12" y2="17.3"/>
+        </svg>
+      </a>
+      <button id="btn-settings" class="btn btn-ghost btn-icon" type="button" title="设置" aria-label="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="panel control-panel">
+    <div class="mode-tabs" role="tablist">
+      <button class="mode-tab active" data-mode="text2img" type="button">文生图</button>
+      <button class="mode-tab" data-mode="img2img" type="button">图生图</button>
+    </div>
+
+    <div class="field">
+      <label for="prompt">提示词</label>
+      <textarea id="prompt" rows="4" placeholder="描述你想要的画面，例如：水墨风格的巨龙腾云驾雾，气势磅礴"></textarea>
+      <div class="field-hint" id="prompt-hint"></div>
+    </div>
+
+    <div id="ref-image-wrap" class="field hidden">
+      <label>参考图片</label>
+      <div class="ref-box" id="ref-box">
+        <input type="file" id="ref-input" accept="image/*" hidden>
+        <button id="btn-upload-ref" class="btn btn-dashed" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          点击上传参考图
+        </button>
+        <div id="ref-preview" class="ref-preview hidden">
+          <img id="ref-img" alt="参考图预览">
+          <button id="btn-remove-ref" class="ref-remove" type="button" title="移除">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="field-hint">上传参考图后，将调用图生图接口生成</div>
+    </div>
+
+    <div class="params-grid">
+      <div class="field">
+        <label for="size">尺寸</label>
+        <select id="size">
+          <optgroup label="常规">
+            <option value="1024x1024">1024 x 1024（1:1）</option>
+            <option value="1536x1024">1536 x 1024（3:2）</option>
+            <option value="1024x1536">1024 x 1536（2:3）</option>
+            <option value="1792x1024">1792 x 1024（7:4）</option>
+            <option value="1024x1792">1024 x 1792（4:7）</option>
+            <option value="512x512">512 x 512（1:1）</option>
+            <option value="256x256">256 x 256（1:1）</option>
+          </optgroup>
+          <optgroup label="电脑屏幕">
+            <option value="1280x720">1280 x 720（16:9）</option>
+            <option value="1280x800">1280 x 800（16:10）</option>
+            <option value="1024x768">1024 x 768（4:3）</option>
+          </optgroup>
+          <optgroup label="手机屏幕">
+            <option value="720x1280">720 x 1280（9:16）</option>
+            <option value="720x1560">720 x 1560（9:19.5）</option>
+            <option value="768x1024">768 x 1024（3:4）</option>
+          </optgroup>
+          <option value="custom">自定义尺寸…</option>
+        </select>
+        <div id="size-custom" class="size-custom hidden">
+          <input type="number" id="size-cw" min="64" max="2048" step="64" value="1024" placeholder="宽">
+          <span class="size-custom-x">×</span>
+          <input type="number" id="size-ch" min="64" max="2048" step="64" value="1024" placeholder="高">
+          <span class="size-custom-px">px</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="count">数量</label>
+        <select id="count">
+          <option value="1">1 张</option>
+          <option value="2">2 张</option>
+          <option value="3">3 张</option>
+          <option value="4">4 张</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="style">风格</label>
+      <select id="style">
+        <option value="auto">自动</option>
+        <option value="photorealistic">照片写实</option>
+        <option value="film">电影感</option>
+        <option value="3d_render">3D 渲染</option>
+        <option value="clay">黏土</option>
+        <option value="anime">动漫</option>
+        <option value="retro_anime">复古动漫</option>
+        <option value="watercolor">水彩</option>
+        <option value="ink">水墨</option>
+        <option value="oil_painting">油画</option>
+        <option value="sketch">素描</option>
+        <option value="pixel">像素</option>
+        <option value="cartoon">卡通</option>
+        <option value="gothic">哥特</option>
+        <option value="cyberpunk">赛博朋克</option>
+        <option value="vaporwave">蒸汽波</option>
+        <option value="holographic">全息</option>
+        <option value="minimal">极简</option>
+        <option value="retro_hk">港风复古</option>
+        <option value="impressionism">印象派</option>
+      </select>
+    </div>
+
+    <button id="btn-generate" class="btn btn-primary" type="button">
+      <svg class="btn-pen-icon" viewBox="0 0 1024 1024" aria-hidden="true">
+        <use href="#icon-pen"/>
+      </svg>
+      <span id="btn-generate-label">开始生成</span>
+    </button>
+
+    <div id="error-box" class="error-box hidden"></div>
+  </aside>
+
+  <section class="panel result-panel">
+    <div class="result-header">
+      <h2 id="result-title">生成结果</h2>
+      <div class="result-meta" id="result-meta"></div>
+    </div>
+    <div id="result-grid" class="result-grid">
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+          <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+          <path d="M2 2l7.586 7.586"/>
+          <circle cx="11" cy="11" r="2"/>
+        </svg>
+        <p>输入提示词，点击「开始生成」<br>等待画面浮现</p>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel history-panel">
+    <div class="history-header">
+      <h2>历史记录</h2>
+      <button id="btn-clear-history" class="btn btn-ghost btn-small" type="button">清空</button>
+    </div>
+    <div id="history-list" class="history-list">
+      <div class="history-empty">暂无记录</div>
+    </div>
+  </aside>
+</main>
+
+<div id="lightbox" class="lightbox hidden">
+  <div class="lightbox-inner">
+    <button id="btn-close-lightbox" class="lightbox-close" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <img id="lightbox-img" alt="大图预览">
+    <a id="lightbox-download" class="btn btn-primary btn-small" download>下载</a>
+  </div>
+</div>
+
+<div id="settings-modal" class="modal-mask hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>API 设置</h2>
+      <button id="btn-close-settings" class="btn-ghost-icon" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="field">
+      <label for="cfg-datasource">生成服务</label>
+      <select id="cfg-datasource">
+        <option value="builtin">内置服务（imagegen，开箱即用）</option>
+        <option value="custom">自定义 API（OpenAI 兼容）</option>
+      </select>
+      <div class="field-hint">内置服务无需配置密钥；自定义 API 需填写下方地址与密钥</div>
+    </div>
+    <div class="field">
+      <label for="cfg-baseurl">API 基础地址</label>
+      <input id="cfg-baseurl" type="text" placeholder="https://api.openai.com/v1">
+      <div class="field-hint">兼容 OpenAI 格式的基础地址，填到 /v1 即可，例如 https://api.openai.com/v1（不要粘贴带 /images/generations 的完整端点）</div>
+    </div>
+    <div class="field">
+      <label for="cfg-apikey">API Key</label>
+      <input id="cfg-apikey" type="password" placeholder="sk-...">
+      <div class="field-hint">仅保存在本浏览器 localStorage，不会上传到服务器</div>
+    </div>
+    <div class="field">
+      <label for="cfg-model">模型名称</label>
+      <input id="cfg-model" type="text" placeholder="gpt-image-1">
+    </div>
+    <div class="modal-actions">
+      <button id="btn-save-settings" class="btn btn-primary" type="button">保存配置</button>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-debug-model" class="btn btn-ghost-dark btn-small" type="button">模型调试</button>
+      <span class="modal-footer-hint">保存前可先调试接口与模型</span>
+    </div>
+  </div>
+</div>
+
+<div id="debug-modal" class="modal-mask hidden">
+  <div class="modal modal-debug">
+    <div class="modal-header">
+      <h2>模型调试</h2>
+      <button id="btn-close-debug" class="btn-ghost-icon" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="debug-box">
+      <div class="field">
+        <label>调试配置（读取当前设置弹窗填写值）</label>
+        <div class="debug-cfg-line" id="debug-cfg-line"></div>
+      </div>
+      <button id="btn-run-debug" class="btn btn-primary" type="button">开始调试</button>
+    </div>
+    <div id="debug-result" class="debug-result"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js?v=16"></script>
+</body>
+</html>
