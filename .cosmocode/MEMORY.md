@@ -47,7 +47,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 - Context: Agent 将文生图应用接入 imagegen MCP 服务时发现
 - Category: 运维部署
 - Instructions:
-  - 应用已升级为「静态前端 + Node 后端」：运行 `cd /workspace/.mcp/imagegen-bridge && IMG_URL=<sse地址> IMG_TOKEN=<令牌> PORT=8000 node server-http.mjs`。
+  - 应用已升级为「静态前端 + Node 后端」：运行 `cd /workspace/.mcp/imagegen-bridge && IMG_URL=<sse地址> IMG_TOKEN=<令牌> PORT=8000 node server-http.mjs`。日常启停直接用 `/workspace/start.sh` 与 `/workspace/stop.sh`：start 先 `ss -tln` 查 8000 已启动则幂等返回 0，未启动则清 .next 缓存、注入 IMG_URL/IMG_TOKEN/PORT、nohup 后台起 server-http.mjs、curl 200 就绪后返回 0（失败返回 2）；stop 用 `ss -tlnp` 提取 PID + kill，10s 未释放再 kill -9。改后端或前端静态文件后须重启服务才生效。
   - server-http.mjs 复用 MCP SDK 的 SSEClientTransport 连接 imagegen MCP 服务，对外提供 POST /api/generate（参数 prompt/n/size/style）与 GET /api/health，并托管 /workspace/web 静态文件；前端默认数据源为内置服务，也可在设置中切换自定义 OpenAI 兼容 API。
   - generate_image 工具默认返回 b64_json，文本中按「图片 N（base64 数据）:」分段，服务端据此解析成 dataURL。
   - 图片生成耗时约 6-35 秒，后端 callTool 超时与 HTTP requestTimeout 均设为 300s 以上，预览代理链路实测可用。
@@ -66,7 +66,9 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 实测 COSMO 网关（gpt.cosmoplat.com）的 cosmo-mind-image 模型当前可用（返回 200），但 data[].url 是服务器本地路径（如 /root/.xinference/image/xxx.jpg）、b64_json 为 null，该路径 HTTP 访问 307 跳登录页（HTML），浏览器无法直接展示 → 自定义接口返回的图在网页上显示为裂图，需用户侧配置能返回公网可访问 url 或 base64 的接口。
   - 已解决自定义接口返回本地路径 url 的问题：generateCustom 请求统一带 response_format:"b64_json"（Xinference 类网关会因此返回 base64 而非本地路径）；normalizeCustomResults 改为 async，对公网 url 会用后端 fetchToDataUrl 抓取转 base64（15s 超时）避免浏览器 CORS；本地路径 url（非 http 开头）被跳过。自定义模式"粉色海豚"实测 10s 返回合法 JPEG base64。调试接口 /api/debug/model 的测试请求同样带 response_format。
   - 日志时间统一东八区：log() 用 `new Date(now.getTime()+8*3600*1000).toISOString().replace("Z","+08:00")`，格式如 2026-08-12T15:25:59.032+08:00。
-  - 任务串行化：createJob 把所有任务挂到 queueTail Promise 链上串行执行（后提交的任务 status 保持 pending 排队），避免并发请求挤兑 Xinference 导致单任务耗时翻倍（并发时 256x256 曾达 160s+）。
+  - 任务并发（2026-08-14 由串行改并发）：createJob 用信号量 acquireSlot/releaseSlot + 等待队列实现 **MAX_CONCURRENCY=10** 并发（原为 queueTail 串行链）；runJob 逐张生成，每张完成即 push 到 job.images 并递增 job.completed，status 接口返回 total/completed 供前端增量展示；done>0 即使部分失败也置 done（error 拼接"第 i 张：…"），全失败置 error。前端据此轮询完成一张即渲染一张，实测 3 任务 256x256 并行约 36s 全部完成。
+  - 前端多任务 UI：结果区为任务卡流（#task-list 内 .task-block，prepend 新任务在上），每卡含标题（任务 N · 提示词前 20 字）、状态行、进度条、图片网格；完成态 is-done/进度 100%，失败态 is-err；历史点击用 renderHistoryTask 复用任务卡渲染。生成不再全局禁用按钮，支持连续提交多任务。
+  - 时长预估：前端 EST_SEC_BUILTIN/EST_SEC_CUSTOM 静态尺寸表（内置 256≈5s、512≈15s、1024≈90s；自定义更慢约 256≈40s、1024≈130s），estimateSeconds() 按面积比例推算未知尺寸，任务提交时展示"预计 X"，生成中按已完成张数实际耗时更新"预计剩余"。
   - 自定义提示词增强：enhancePrompt(prompt, style) 按 STYLE_DESC 风格映射表把前端 style 转英文描述，统一追加 "masterpiece, best quality, highly detailed"，提升生成图与提示词相关性；仅作用于自定义请求，内置服务有自己的转写逻辑不受影响。
   - 自定义提示词先中译英再增强：generateCustom 调 translateToEnglish()，用网关对话模型 cosmo-mind-nothink（POST {baseURL}/chat/completions，15s 超时，temperature 0.3）把中文提示词译成英文，失败回退原文；结果按原文本做内存缓存（上限 200 条）。实测"一只在月光下展翅的仙鹤，仙气飘飘"→"A crane spreading its wings under the moonlight, ethereal and otherworldly..." 约 1s，全链路约 10s 出图。
   - 自定义接口生成耗时与尺寸强相关（实测 cosmo-mind-image）：256x256 约 5s、512 约 10-30s、1024 约 80-130s；前端自定义模式生成时提示"预计 1-3 分钟"。
