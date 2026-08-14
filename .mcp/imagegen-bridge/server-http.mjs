@@ -11,6 +11,30 @@ const PORT = parseInt(process.env.PORT || "8000", 10);
 const IMG_URL = process.env.IMG_URL;
 const MAX_ATTEMPTS = 3;
 const TOOL_TIMEOUT = 240000;
+const MAX_CONCURRENCY = 10;
+let activeCount = 0;
+const waitQueue = [];
+
+function acquireSlot() {
+  if (activeCount < MAX_CONCURRENCY) {
+    activeCount += 1;
+    return Promise.resolve();
+  }
+  return new Promise(function (resolve) { waitQueue.push(resolve); });
+}
+
+function releaseSlot() {
+  activeCount -= 1;
+  const next = waitQueue.shift();
+  if (next) {
+    activeCount += 1;
+    next();
+  }
+}
+
+function appendJobError(prev, msg) {
+  return prev ? prev + "；" + msg : msg;
+}
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -136,25 +160,26 @@ function newJobId() {
   return "job-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-let queueTail = Promise.resolve();
-
 function createJob(prompt, n, size, style, source, cfg) {
+  const total = Math.max(1, parseInt(n, 10) || 1);
   const job = {
     id: newJobId(),
     status: "pending",
     prompt: prompt,
-    params: { n: n, size: size, style: style, source: source },
+    params: { n: total, size: size, style: style, source: source },
+    total: total,
+    completed: 0,
     images: [],
     error: "",
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
   jobs.set(job.id, job);
-  queueTail = queueTail
-    .then(function () {
-      return runJob(job, prompt, n, size, style, source, cfg);
-    })
-    .catch(function () { /* 保持队列存活 */ });
+  acquireSlot().then(function () {
+    return runJob(job, prompt, total, size, style, source, cfg);
+  }).catch(function () { /* 保持任务存活 */ }).finally(function () {
+    releaseSlot();
+  });
   return job;
 }
 
@@ -240,30 +265,44 @@ function nearestBuiltinSize(size) {
   return best;
 }
 
-async function runJob(job, prompt, n, size, style, source, cfg) {
+async function runJob(job, prompt, total, size, style, source, cfg) {
   job.status = "processing";
   const started = Date.now();
-  log("job " + job.id + " 开始 source=" + source + " prompt=" + String(prompt).slice(0, 40));
-  try {
-    let out;
-    if (source === "custom") {
-      out = await generateCustom(prompt, n, size, style, cfg);
-    } else {
-      const actual = nearestBuiltinSize(size);
-      if (actual !== size) {
-        log("job " + job.id + " 内置尺寸白名单映射 " + size + " -> " + actual);
+  log("job " + job.id + " 开始 source=" + source + " n=" + total + " prompt=" + String(prompt).slice(0, 40));
+  let done = 0;
+  for (let i = 0; i < total; i++) {
+    try {
+      let out;
+      if (source === "custom") {
+        out = await generateCustom(prompt, 1, size, style, cfg);
+      } else {
+        const actual = nearestBuiltinSize(size);
+        if (actual !== size) {
+          log("job " + job.id + " 内置尺寸白名单映射 " + size + " -> " + actual);
+        }
+        out = await generateImage(prompt, 1, actual, style);
       }
-      out = await generateImage(prompt, n, actual, style);
+      if (out.images && out.images.length) {
+        job.images.push(out.images[0]);
+        done += 1;
+        job.completed = done;
+        log("job " + job.id + " 第" + (i + 1) + "/" + total + " 张完成 已用=" + ((Date.now() - started) / 1000).toFixed(1) + "s");
+      } else {
+        job.error = appendJobError(job.error, "第" + (i + 1) + "张：图片服务未返回图片");
+        log("job " + job.id + " 第" + (i + 1) + " 张无返回");
+      }
+    } catch (e) {
+      const msg = e && e.message ? e.message : "图片生成失败";
+      job.error = appendJobError(job.error, "第" + (i + 1) + "张：" + msg);
+      log("job " + job.id + " 第" + (i + 1) + "/" + total + " 张失败: " + msg);
     }
-    job.images = out.images || [];
-    job.status = job.images.length ? "done" : "error";
-    if (!job.images.length) job.error = "图片服务未返回图片";
-    log("job " + job.id + " 完成 source=" + source + " 耗时=" + ((Date.now() - started) / 1000).toFixed(1) + "s 图片=" + job.images.length);
-  } catch (e) {
-    job.status = "error";
-    job.error = e && e.message ? e.message : "图片生成失败";
-    log("job " + job.id + " 失败 source=" + source + ": " + job.error);
+    job.updatedAt = Date.now();
   }
+  job.completed = done;
+  job.status = done > 0 ? "done" : "error";
+  if (!done && !job.error) job.error = "图片服务未返回图片";
+  log("job " + job.id + " 结束 status=" + job.status + " 完成=" + done + "/" + total +
+    " 耗时=" + ((Date.now() - started) / 1000).toFixed(1) + "s");
   job.updatedAt = Date.now();
 }
 
@@ -584,6 +623,8 @@ const server = http.createServer(function (req, res) {
       ok: true,
       jobId: job.id,
       status: job.status,
+      total: job.total,
+      completed: job.completed,
       images: job.images,
       error: job.error
     });

@@ -10,7 +10,8 @@
     baseURL: "",
     apiKey: "",
     model: "gpt-image-1",
-    defaultSize: "1024x1024"
+    defaultSize: "1024x1024",
+    modelConnected: null
   };
 
   var PRESET_SIZES = [
@@ -21,6 +22,32 @@
   ];
 
   var BUILTIN_SIZES = ["256x256", "512x512", "1024x1024", "1536x1024", "1024x1536", "1792x1024", "1024x1792"];
+
+  var EST_SEC_BUILTIN = {
+    "256x256": 5, "512x512": 15, "1024x1024": 90, "1536x1024": 120,
+    "1024x1536": 120, "1792x1024": 130, "1024x1792": 130
+  };
+  var EST_SEC_CUSTOM = {
+    "256x256": 40, "512x512": 60, "1024x1024": 130, "1536x1024": 150,
+    "1024x1536": 150, "1792x1024": 170, "1024x1792": 170
+  };
+
+  function estimateSeconds(size, custom) {
+    var table = custom ? EST_SEC_CUSTOM : EST_SEC_BUILTIN;
+    if (table[size]) return table[size];
+    var m = /^(\d+)x(\d+)$/.exec(size || "");
+    if (!m) return custom ? 130 : 90;
+    var area = parseInt(m[1], 10) * parseInt(m[2], 10);
+    return Math.max(3, Math.round((custom ? 130 : 90) * area / (1024 * 1024)));
+  }
+
+  function fmtSec(sec) {
+    sec = Math.max(0, Math.round(sec || 0));
+    if (sec < 60) return sec + " 秒";
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return s ? m + " 分 " + s + " 秒" : m + " 分钟";
+  }
 
   var state = {
     mode: "text2img",
@@ -80,29 +107,28 @@
   function refreshCfgStatus() {
     var s = loadSettings();
     var el = $("cfg-status");
+    el.classList.remove("ok", "err");
     if (s.datasource === "builtin") {
       el.textContent = "已配置：内置服务";
       el.classList.add("ok");
     } else if (s.baseURL && s.apiKey) {
       el.textContent = "已配置：" + s.model;
-      el.classList.add("ok");
+      if (s.modelConnected === true) el.classList.add("ok");
+      else if (s.modelConnected === false) el.classList.add("err");
     } else {
       el.textContent = "未配置";
-      el.classList.remove("ok");
     }
     syncModeAvailability();
   }
 
   function syncModeAvailability() {
-    var s = loadSettings();
-    var builtin = s.datasource !== "custom";
     document.querySelectorAll(".mode-tab").forEach(function (tab) {
-      var dis = builtin && tab.dataset.mode === "img2img";
+      var dis = tab.dataset.mode === "img2img";
       tab.disabled = false;
       tab.setAttribute("aria-disabled", String(dis));
       tab.classList.toggle("is-disabled", dis);
     });
-    if (builtin && state.mode === "img2img") setMode("text2img");
+    if (state.mode === "img2img") setMode("text2img");
   }
 
   function showError(msg) {
@@ -130,15 +156,21 @@
     return "id-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
   }
 
-  function pollJob(jobId) {
+  function pollJob(jobId, onProgress) {
     var attempts = 0;
-    var maxAttempts = 150;
+    var maxAttempts = 360;
     function tick() {
       return fetch("/api/status/" + jobId).then(function (resp) {
         return resp.json().catch(function () { return {}; });
       }).then(function (body) {
+        if (onProgress) onProgress(body);
         if (body.status === "done") {
-          return { images: body.images || [] };
+          return {
+            images: body.images || [],
+            total: body.total || (body.images || []).length || 1,
+            completed: body.completed || (body.images || []).length || 0,
+            error: body.error || ""
+          };
         }
         if (body.status === "error") {
           throw new Error(body.error || "图片生成失败，请重试");
@@ -156,7 +188,7 @@
     return tick();
   }
 
-  function generateJob(payload) {
+  function generateJob(payload, onProgress) {
     return fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -166,14 +198,8 @@
         if (!resp.ok || !body.jobId) {
           throw new Error((body && body.error) || "生成请求失败（HTTP " + resp.status + "）");
         }
-        return pollJob(body.jobId);
+        return pollJob(body.jobId, onProgress);
       });
-    });
-  }
-
-  function toImageObjects(srcList) {
-    return (srcList || []).map(function (src) {
-      return { src: src, b64: true };
     });
   }
 
@@ -197,9 +223,32 @@
     document.body.removeChild(a);
   }
 
+  function downloadFromDataUrl(dataUrl, filename) {
+    var img = new Image();
+    img.onload = function () {
+      var c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      c.getContext("2d").drawImage(img, 0, 0);
+      c.toBlob(function (blob) {
+        if (blob) {
+          var url = URL.createObjectURL(blob);
+          downloadByUrl(url, filename);
+          setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        } else {
+          downloadDataUrl(dataUrl, filename);
+        }
+      }, "image/png");
+    };
+    img.onerror = function () {
+      downloadDataUrl(dataUrl, filename);
+    };
+    img.src = dataUrl;
+  }
+
   function handleDownload(image, filename) {
-    if (image.b64) {
-      downloadDataUrl(image.src, filename);
+    if (image.b64 || /^data:image\//i.test(image.src)) {
+      downloadFromDataUrl(image.src, filename);
       return;
     }
     fetch(image.src).then(function (resp) {
@@ -214,8 +263,8 @@
     });
   }
 
-  function renderImages(images) {
-    var grid = $("result-grid");
+  function renderImages(images, grid) {
+    grid = grid || $("task-list");
     grid.innerHTML = "";
     images = (images || []).map(function (item) {
       if (typeof item === "string") return { src: item, b64: true };
@@ -278,19 +327,117 @@
     });
   }
 
-  function renderLoading(n) {
-    var grid = $("result-grid");
+  function renderPlaceholderCards(grid, n) {
     grid.innerHTML = "";
-    $("result-meta").textContent = "";
-    var scene = document.createElement("div");
-    scene.className = "ink-loading";
-    scene.innerHTML =
-      '<svg class="ink-loading-svg" viewBox="0 0 320 180" aria-hidden="true">' +
-      '<path class="ink-trail" pathLength="1" d="M26 132 C 62 50, 120 160, 174 84 S 268 124, 296 58"/>' +
-      '<use class="ink-pen" href="#icon-pen" width="44" height="44" x="-22" y="-22"/>' +
-      "</svg>" +
-      '<p class="ink-loading-text">神笔作画中，请稍候……</p>';
-    grid.appendChild(scene);
+    for (var i = 0; i < n; i++) {
+      var card = document.createElement("figure");
+      card.className = "image-card is-loading";
+      card.setAttribute("data-idx", String(i));
+      grid.appendChild(card);
+    }
+  }
+
+  var taskSeq = 0;
+
+  function createTaskBlock(estimateSec, prompt) {
+    var list = $("task-list");
+    var empty = $("empty-state");
+    if (empty) empty.remove();
+    taskSeq += 1;
+    var block = document.createElement("div");
+    block.className = "task-block";
+    block.innerHTML =
+      '<div class="task-head">' +
+        '<span class="task-title">任务 ' + taskSeq + " · " + escHtml(String(prompt).slice(0, 20)) + "</span>" +
+        '<span class="task-status">预计 ' + fmtSec(estimateSec) + "</span>" +
+      "</div>" +
+      '<div class="task-progress"><div class="task-progress-bar"></div></div>' +
+      '<div class="task-grid"></div>';
+    list.prepend(block);
+    return {
+      block: block,
+      grid: block.querySelector(".task-grid"),
+      statusEl: block.querySelector(".task-status"),
+      bar: block.querySelector(".task-progress-bar"),
+      rendered: 0,
+      images: []
+    };
+  }
+
+  function renderHistoryTask(images, prompt) {
+    var list = $("task-list");
+    var empty = $("empty-state");
+    if (empty) empty.remove();
+    taskSeq += 1;
+    var block = document.createElement("div");
+    block.className = "task-block is-done";
+    block.innerHTML =
+      '<div class="task-head">' +
+        '<span class="task-title">历史结果</span>' +
+        '<span class="task-status is-ok">已完成</span>' +
+      "</div>" +
+      '<div class="task-grid"></div>';
+    list.prepend(block);
+    renderImages(images, block.querySelector(".task-grid"));
+  }
+
+  function renderTaskImage(t, index, src) {
+    var card = t.grid.children[index];
+    if (!card) return;
+    card.classList.remove("is-loading");
+    card.classList.add("loading-mask");
+    var imgObj = { src: src, b64: true };
+    var im = document.createElement("img");
+    im.alt = "生成图片 " + (index + 1);
+    im.loading = "lazy";
+    card.appendChild(im);
+    var actions = document.createElement("div");
+    actions.className = "image-actions";
+    var dl = document.createElement("button");
+    dl.type = "button";
+    dl.className = "btn";
+    dl.textContent = "下载";
+    dl.addEventListener("click", function (e) {
+      e.stopPropagation();
+      handleDownload(imgObj, "shenbi-" + index + "-" + Date.now() + ".png");
+    });
+    actions.appendChild(dl);
+    card.appendChild(actions);
+    card.addEventListener("click", function () {
+      openLightbox(imgObj, index, t.images);
+    });
+    im.onload = function () { card.classList.remove("loading-mask"); };
+    im.onerror = function () { card.classList.remove("loading-mask"); im.style.display = "none"; };
+    im.src = src;
+    if (im.complete && im.naturalWidth > 0) card.classList.remove("loading-mask");
+  }
+
+  function applyTaskCompleted(t, body) {
+    var done = body.completed || (body.images || []).length || 0;
+    var total = body.total || t.n || done;
+    for (var i = t.rendered; i < done; i++) {
+      var src = body.images && body.images[i];
+      if (!src) break;
+      t.images.push(src);
+      renderTaskImage(t, i, src);
+      t.rendered += 1;
+    }
+    t.bar.style.width = (total ? Math.round(done / total * 100) : 0) + "%";
+    if (done < total) {
+      var elapsed = (Date.now() - t.startedAt) / 1000;
+      var remain;
+      if (done > 0) {
+        remain = Math.max(0, Math.round((elapsed / done) * (total - done)));
+      } else {
+        remain = Math.max(0, Math.round((t.estimateSec || 0) - elapsed));
+      }
+      t.statusEl.textContent = "生成中 " + done + "/" + total + " · 已用 " + fmtSec(elapsed) + " · 预计剩余 " + fmtSec(remain);
+      t.statusEl.className = "task-status is-running";
+    } else {
+      t.statusEl.textContent = "已完成";
+      t.statusEl.className = "task-status is-ok";
+      t.block.classList.add("is-done");
+    }
   }
 
   function openLightbox(image, idx, images) {
@@ -322,13 +469,51 @@
     state.lightboxUrl = current.src;
     applyLightboxScale();
     var dl = $("lightbox-download");
-    dl.onclick = function () {
-      handleDownload(current, "shenbi-" + i + "-" + Date.now() + ".png");
-    };
+    dl.onclick = downloadCurrentLightbox;
     var multi = list.length > 1;
     $("btn-prev-lightbox").classList.toggle("hidden-nav", !multi);
     $("btn-next-lightbox").classList.toggle("hidden-nav", !multi);
     $("lightbox-counter").textContent = multi ? (i + 1) + " / " + list.length : "";
+  }
+
+  function downloadCurrentLightbox() {
+    var list = state.lightboxImages;
+    var i = state.lightboxIndex;
+    var current = toImageObject(list[i] || list[0]);
+    if (!current) return;
+    handleDownload(current, "shenbi-" + i + "-" + Date.now() + ".png");
+  }
+
+  function initLightboxLongPress() {
+    var img = $("lightbox-img");
+    var timer = null;
+    var mark = null;
+    var MOVE_TOLERANCE = 10;
+    var LONG_PRESS_MS = 600;
+    function clearPress() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      mark = null;
+    }
+    img.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      clearPress();
+      mark = { x: e.clientX, y: e.clientY };
+      timer = setTimeout(function () {
+        timer = null;
+        mark = null;
+        downloadCurrentLightbox();
+        showToast("已保存当前图片");
+      }, LONG_PRESS_MS);
+    });
+    img.addEventListener("pointermove", function (e) {
+      if (!mark) return;
+      if (Math.abs(e.clientX - mark.x) > MOVE_TOLERANCE || Math.abs(e.clientY - mark.y) > MOVE_TOLERANCE) {
+        clearPress();
+      }
+    });
+    img.addEventListener("pointerup", clearPress);
+    img.addEventListener("pointercancel", clearPress);
+    img.addEventListener("pointerleave", clearPress);
   }
 
   function applyLightboxScale() {
@@ -582,7 +767,7 @@
         });
         item.classList.add("active");
         $("result-title").textContent = "历史结果";
-        renderImages(rec.images || []);
+        renderHistoryTask(rec.images || [], rec.prompt || "");
         $("result-meta").textContent = rec.prompt || "";
       });
       listEl.appendChild(item);
@@ -631,7 +816,6 @@
   }
 
   function doGenerate() {
-    if (state.generating) return;
     clearError();
 
     var prompt = $("prompt").value.trim();
@@ -656,13 +840,11 @@
       saveSettings(s);
     }
 
-    var refFile = $("ref-input").files && $("ref-input").files[0];
     var mode = state.mode;
     if (mode === "img2img" && !state.refDataUrl) {
       showError("图生图模式需要先上传参考图片。");
       return;
     }
-
     var isBuiltin = s.datasource !== "custom";
     if (mode === "img2img" && isBuiltin) {
       showError("内置服务暂不支持图生图，请在设置中切换「自定义 API」模式。");
@@ -672,23 +854,16 @@
       showToast("内置服务仅支持固定尺寸，将自动匹配最接近的尺寸");
     }
 
-    state.generating = true;
-    $("btn-generate").disabled = true;
-    $("btn-generate-label").textContent = "生成中…";
-    renderLoading(n);
+    var perSec = estimateSeconds(size, !isBuiltin);
+    var estimate = perSec * n;
+    var t = createTaskBlock(estimate, prompt);
+    renderPlaceholderCards(t.grid, n);
+    t.n = n;
+    t.startedAt = Date.now();
+    t.estimateSec = estimate;
     $("result-title").textContent = "生成结果";
-    $("result-meta").textContent = "提示词：" + prompt + " · " + size + " · " + n + " 张";
-    if (!isBuiltin) {
-      showToast("自定义模型生成较慢，预计 1-3 分钟，请耐心等待");
-    }
+    $("result-meta").textContent = "任务 " + taskSeq + " 已提交 · 共 " + n + " 张 · 预计 " + fmtSec(estimate);
 
-    var startedAt = Date.now();
-    state.elapsedTimer = setInterval(function () {
-      var sec = Math.round((Date.now() - startedAt) / 1000);
-      $("result-meta").textContent = "生成中，已耗时 " + sec + " 秒…";
-    }, 1000);
-
-    var promise;
     var payload = { prompt: prompt, n: n, size: size, style: style };
     if (isBuiltin) {
       payload.source = "builtin";
@@ -701,47 +876,46 @@
         payload.imageDataUrl = state.refDataUrl;
       }
     }
-    promise = generateJob(payload);
 
-    promise.then(function (body) {
-      var images = toImageObjects(body.images);
-      renderImages(images);
-      var record = {
-        id: uniqueId(),
-        ts: Date.now(),
-        prompt: prompt,
-        mode: mode,
-        params: { model: s.model, n: n, size: size, style: style },
-        images: images.map(function (img) {
-          return img.src;
-        })
-      };
-      addHistory(record);
+    generateJob(payload, function (body) {
+      applyTaskCompleted(t, body);
+    }).then(function (body) {
+      applyTaskCompleted(t, body);
+      var images = body.images || [];
+      if (body.error) {
+        t.statusEl.textContent = "已完成（部分失败：" + body.error + "）";
+        t.statusEl.className = "task-status is-err";
+        showToast("部分图片生成失败，请查看任务详情");
+      } else {
+        t.statusEl.textContent = "已完成 · 耗时 " + fmtSec((Date.now() - t.startedAt) / 1000);
+        t.statusEl.className = "task-status is-ok";
+      }
+      t.block.classList.add("is-done");
+      t.bar.style.width = "100%";
+      $("result-meta").textContent = "已生成 " + images.length + " 张 · " + size;
       if (!images.length) {
         showError("图片服务返回成功但未解析到图片，请稍后重试。");
+      } else {
+        addHistory({
+          id: uniqueId(),
+          ts: Date.now(),
+          prompt: prompt,
+          mode: mode,
+          params: { model: s.model, n: n, size: size, style: style },
+          images: images.map(function (src) { return src; })
+        });
       }
     }).catch(function (err) {
-      $("result-grid").innerHTML = "";
-      $("result-meta").textContent = "";
-      var empty = document.createElement("div");
-      empty.className = "empty-state";
-      empty.innerHTML = "<p>生成失败</p>";
-      $("result-grid").appendChild(empty);
-
       var msg = err && err.message ? err.message : "请求失败，请检查网络或接口配置。";
       if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
         msg += "\n可能原因：接口地址无法访问，或目标服务不允许跨域请求（CORS）。" +
           "\n建议：确认接口地址正确、网络可达；若为 CORS 拦截，请在服务端开启跨域，或经支持跨域的反向代理转发。";
       }
+      t.bar.classList.add("is-err");
+      t.statusEl.textContent = "失败：" + msg;
+      t.statusEl.className = "task-status is-err";
+      t.block.classList.add("is-done");
       showError(msg);
-    }).finally(function () {
-      state.generating = false;
-      if (state.elapsedTimer) {
-        clearInterval(state.elapsedTimer);
-        state.elapsedTimer = null;
-      }
-      $("btn-generate").disabled = false;
-      $("btn-generate-label").textContent = "开始生成";
     });
   }
 
@@ -813,10 +987,16 @@
   }
 
   function renderDebugResult(data) {
+    var g = data.generate;
+    var modelState = g
+      ? (g.ok
+          ? '<span class="debug-badge ok">接通</span>'
+          : '<span class="debug-badge err">未接通</span>')
+      : "";
     var html = "";
     html += '<div class="debug-block"><div class="debug-block-title">连接信息</div>' +
       '<div class="debug-row"><span>归一化地址</span><code>' + escHtml(data.base) + "</code></div>" +
-      '<div class="debug-row"><span>模型名称</span><code>' + escHtml(data.model) + "</code></div></div>";
+      '<div class="debug-row"><span>模型名称</span><code>' + escHtml(data.model) + "</code>" + modelState + "</div></div>";
 
     var m = data.models;
     html += '<div class="debug-block"><div class="debug-block-title">模型列表 <span class="debug-dim">GET ' + escHtml(data.base) + '/models</span></div>' +
@@ -832,7 +1012,6 @@
     }
     html += "</div>";
 
-    var g = data.generate;
     html += '<div class="debug-block"><div class="debug-block-title">生成请求 <span class="debug-dim">POST ' + escHtml(data.base) + '/images/generations</span></div>' +
       '<div class="debug-row"><span>结果</span>' + badge(!!(g && g.ok)) + '</div>' +
       '<div class="debug-row"><span>状态码</span><code>' + (g ? g.status : "—") + "</code></div>" +
@@ -877,6 +1056,12 @@
         return;
       }
       resultEl.innerHTML = renderDebugResult(body.data);
+      var cur = loadSettings();
+      if (cur.datasource === "custom" && cur.model === (cfg.model || DEFAULT_SETTINGS.model)) {
+        cur.modelConnected = !!(body.data.generate && body.data.generate.ok);
+        saveSettings(cur);
+        refreshCfgStatus();
+      }
       var sel = $("debug-model-select");
       if (sel) {
         sel.addEventListener("change", function () {
@@ -911,7 +1096,7 @@
     document.querySelectorAll(".mode-tab").forEach(function (tab) {
       tab.addEventListener("click", function () {
         if (tab.classList.contains("is-disabled")) {
-          showToast("内置服务暂不支持图生图，请在设置中切换「自定义 API」模式");
+          showToast("图生图功能敬请期待");
           return;
         }
         setMode(tab.dataset.mode);
@@ -1001,6 +1186,8 @@
     $("btn-zoom-in").addEventListener("click", function () { lightboxZoom(0.25); });
     $("btn-zoom-out").addEventListener("click", function () { lightboxZoom(-0.25); });
     $("btn-zoom-reset").addEventListener("click", resetLightboxScale);
+
+    initLightboxLongPress();
 
     var vp = $("lightbox-viewport");
     vp.addEventListener("wheel", function (e) {

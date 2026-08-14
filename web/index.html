@@ -4,7 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>神笔马良 · 文生图工具</title>
-<link rel="stylesheet" href="styles.css?v=44">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="神笔马良">
+<link rel="stylesheet" href="styles.css?v=52">
 </head>
 <body>
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -58,7 +63,7 @@
     <div class="control-body">
       <div class="mode-tabs" role="tablist">
       <button class="mode-tab active" data-mode="text2img" type="button">文生图</button>
-      <button class="mode-tab" data-mode="img2img" type="button">图生图</button>
+      <button class="mode-tab" data-mode="img2img" type="button">图生图<span class="mode-badge">敬请期待</span></button>
     </div>
 
     <div class="field">
@@ -227,8 +232,8 @@
       <h2 id="result-title">生成结果</h2>
       <div class="result-meta" id="result-meta"></div>
     </div>
-    <div id="result-grid" class="result-grid">
-      <div class="empty-state">
+    <div id="task-list" class="task-list">
+      <div id="empty-state" class="empty-state">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 19l7-7 3 3-7 7-3-3z"/>
           <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
@@ -380,6 +385,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=32"></script>
+<script src="app.js?v=38"></script>
 </body>
 </html>
