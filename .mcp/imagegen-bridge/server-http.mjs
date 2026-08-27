@@ -1,6 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -9,9 +10,36 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../../web");
 const PORT = parseInt(process.env.PORT || "8000", 10);
 const IMG_URL = process.env.IMG_URL;
+const TINIFY_API_KEY = process.env.TINIFY_API_KEY || "";
 const MAX_ATTEMPTS = 3;
 const TOOL_TIMEOUT = 240000;
 const MAX_CONCURRENCY = 10;
+const AUDIT_DIR = path.join(__dirname, "../../logs/audit");
+const AGREEMENTS_FILE = path.join(__dirname, "../../logs/agreements.json");
+const AUDIT_RETENTION_DAYS = 180;
+const AGREEMENT_VERSION = "2026-08-27-2";
+const AGREEMENT_TITLE = "神笔马良 · AI 文生图服务用户协议";
+const AGREEMENT_CONTENT =
+  "神笔马良 · AI 文生图服务用户协议\n" +
+  "\n" +
+  "一、图片标识说明\n" +
+  "1. 本服务生成与展示的图片均含**显式标识（水印）**与**隐式元数据标识**。\n" +
+  "2. 用户主动申请下载时，可获取不含显式标识的图片版本；该版本仍保留**隐式元数据标识**（含生成任务编号、调用人标识、生成与下载时间），用于溯源与合规审计，**用户不得移除或篡改**。\n" +
+  "\n" +
+  "二、用户标识义务\n" +
+  "1. 申请下载不带显式标识的图片，即表示用户**确认已阅读并同意本协议**，并对下载图片的后续使用行为负责。\n" +
+  "2. 用户不得将本服务生成内容用于**违法违规、侵权、虚假信息、欺诈、色情、危害国家安全**等用途。\n" +
+  "\n" +
+  "三、使用责任\n" +
+  "1. 用户对使用生成内容引发的一切后果**承担全部责任**。\n" +
+  "2. 涉及他人肖像、商标、版权作品等的生成与使用，用户应**自行取得必要授权**并承担相应法律责任。\n" +
+  "\n" +
+  "四、使用记录留存\n" +
+  "1. 为保障服务安全与合规，本服务将留存调用记录（含调用人标识、请求参数、输出记录），**留存期限不少于 6 个月**。\n" +
+  "2. 调用记录仅用于安全审计与合规管理，不用于其他用途。\n" +
+  "\n" +
+  "五、其他\n" +
+  "本协议如有更新，将在页面公布新版本；用户继续使用本服务即视为接受更新后的协议。";
 let activeCount = 0;
 const waitQueue = [];
 
@@ -53,6 +81,82 @@ function log(msg) {
   const now = new Date();
   const s = new Date(now.getTime() + 8 * 3600 * 1000).toISOString().replace("Z", "+08:00");
   console.log("[shenbi-server] " + s + " " + msg);
+}
+
+function callerId(req) {
+  const v = req && req.headers && req.headers["x-caller-id"]
+    ? String(req.headers["x-caller-id"])
+    : "";
+  return v.slice(0, 64) || "anonymous";
+}
+
+function clientIp(req) {
+  if (!req || !req.headers) return "";
+  const f = req.headers["x-forwarded-for"];
+  if (f) return String(f).split(",")[0].trim().slice(0, 64);
+  return req.socket && req.socket.remoteAddress
+    ? String(req.socket.remoteAddress).slice(0, 64)
+    : "";
+}
+
+function audit(action, src, extra) {
+  try {
+    fs.mkdirSync(AUDIT_DIR, { recursive: true });
+    let caller = "anonymous", ip = "", ua = "";
+    if (src && src.headers) {
+      caller = callerId(src);
+      ip = clientIp(src);
+      ua = String(src.headers["user-agent"] || "").slice(0, 300);
+    } else if (src) {
+      caller = String(src.caller || "anonymous").slice(0, 64);
+      ip = String(src.ip || "").slice(0, 64);
+      ua = String(src.ua || "").slice(0, 300);
+    }
+    const now = new Date(Date.now() + 8 * 3600 * 1000);
+    const iso = now.toISOString().replace("Z", "+08:00");
+    const day = iso.slice(0, 10);
+    const rec = Object.assign({ ts: iso, action: action, caller: caller, ip: ip, ua: ua }, extra || {});
+    fs.appendFileSync(path.join(AUDIT_DIR, day + ".jsonl"), JSON.stringify(rec) + "\n");
+  } catch (e) {
+    log("审计日志写入失败: " + (e && e.message ? e.message : e));
+  }
+}
+
+function cleanupAuditLogs() {
+  try {
+    if (!fs.existsSync(AUDIT_DIR)) return;
+    const cutoff = Date.now() - AUDIT_RETENTION_DAYS * 24 * 3600 * 1000;
+    for (const f of fs.readdirSync(AUDIT_DIR)) {
+      if (!/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)) continue;
+      const dayMs = new Date(f.slice(0, 10) + "T00:00:00+08:00").getTime();
+      if (!Number.isNaN(dayMs) && dayMs < cutoff) {
+        try { fs.unlinkSync(path.join(AUDIT_DIR, f)); } catch (e) { /* ignore */ }
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+const acceptedAgreements = new Map();
+
+function loadAcceptedAgreements() {
+  try {
+    const raw = fs.readFileSync(AGREEMENTS_FILE, "utf8");
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === "object") {
+      for (const k of Object.keys(obj)) {
+        if (typeof obj[k] === "string") acceptedAgreements.set(k, obj[k]);
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function persistAcceptedAgreements() {
+  try {
+    fs.mkdirSync(path.dirname(AGREEMENTS_FILE), { recursive: true });
+    fs.writeFileSync(AGREEMENTS_FILE, JSON.stringify(Object.fromEntries(acceptedAgreements), null, 2));
+  } catch (e) {
+    log("协议记录写入失败: " + (e && e.message ? e.message : e));
+  }
 }
 
 function expandEnv(value) {
@@ -160,7 +264,7 @@ function newJobId() {
   return "job-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-function createJob(prompt, n, size, style, source, cfg) {
+function createJob(prompt, n, size, style, source, cfg, ctx) {
   const total = Math.max(1, parseInt(n, 10) || 1);
   const job = {
     id: newJobId(),
@@ -172,7 +276,8 @@ function createJob(prompt, n, size, style, source, cfg) {
     images: [],
     error: "",
     createdAt: Date.now(),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    ctx: ctx || null
   };
   jobs.set(job.id, job);
   acquireSlot().then(function () {
@@ -304,6 +409,16 @@ async function runJob(job, prompt, total, size, style, source, cfg) {
   log("job " + job.id + " 结束 status=" + job.status + " 完成=" + done + "/" + total +
     " 耗时=" + ((Date.now() - started) / 1000).toFixed(1) + "s");
   job.updatedAt = Date.now();
+  if (job.ctx) {
+    audit("generate_complete", job.ctx, {
+      jobId: job.id,
+      total: total,
+      done: done,
+      status: job.status,
+      elapsedMs: Date.now() - started,
+      error: String(job.error || "").slice(0, 500)
+    });
+  }
 }
 
 async function connectOnce() {
@@ -502,6 +617,135 @@ async function generateImage(prompt, n, size, style) {
   throw lastErr || new Error("图片生成失败");
 }
 
+function runPythonScript(b64, metaJson) {
+  return new Promise(function (resolve, reject) {
+    const script = path.join(__dirname, "finalize-download.py");
+    let child;
+    try {
+      child = spawn("python3", [script, "--meta", metaJson], { stdio: ["pipe", "pipe", "pipe"] });
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    let out = "", err = "";
+    child.stdout.on("data", function (d) { out += d; });
+    child.stderr.on("data", function (d) { err += d; });
+    child.on("error", function (e) { reject(e); });
+    child.on("close", function (code) {
+      if (code !== 0) {
+        reject(new Error(String(err).trim() || ("去水印脚本退出码 " + code)));
+        return;
+      }
+      resolve(out);
+    });
+    child.stdin.on("error", function () { /* ignore */ });
+    child.stdin.write(b64);
+    child.stdin.end();
+  });
+}
+
+async function finalizeDownload(body, ctx) {
+  let dataUrl = "", jobId = "", index = 0;
+  if (body.jobId) {
+    const job = jobs.get(String(body.jobId));
+    if (!job || !Array.isArray(job.images)) throw new Error("任务不存在或已过期");
+    index = Math.max(0, parseInt(body.index, 10) || 0);
+    if (index >= job.images.length) throw new Error("图片序号无效");
+    dataUrl = String(job.images[index] || "");
+    jobId = String(body.jobId);
+  } else {
+    dataUrl = String(body.imageDataUrl || "");
+    if (!/^data:image\/(png|jpe?g);base64,/i.test(dataUrl)) throw new Error("缺少有效的图片数据");
+  }
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) throw new Error("图片数据格式错误");
+  const b64 = dataUrl.slice(comma + 1);
+  const meta = {
+    app: "shenbi-magic-brush",
+    job: jobId,
+    index: index,
+    caller: ctx && ctx.caller ? ctx.caller : "anonymous",
+    generated_at: new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace("Z", "+08:00"),
+    agreement_version: AGREEMENT_VERSION,
+    note: "隐式元数据标识：本图含调用溯源信息，请勿移除"
+  };
+  const out = await runPythonScript(b64, JSON.stringify(meta));
+  const lines = String(out).split(/\r?\n/);
+  const sizeInfo = (lines[0] || "").trim();
+  const b64Out = (lines.slice(1).join("") || "").trim();
+  if (!b64Out) throw new Error("去水印处理未返回图片");
+  const buffer = Buffer.from(b64Out, "base64");
+  let width = 0, height = 0;
+  const m = /^(\d+)x(\d+)$/.exec(sizeInfo);
+  if (m) { width = parseInt(m[1], 10); height = parseInt(m[2], 10); }
+  return { buffer: buffer, bytes: buffer.length, width: width, height: height };
+}
+
+async function compressWithTinyPng(dataUrl) {
+  const apiKey = TINIFY_API_KEY;
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) throw new Error("图片数据格式错误");
+  const meta = dataUrl.slice(0, comma);
+  const mime = (meta.match(/data:(.*?)(;|$)/) || [null, "image/png"])[1];
+  const buf = Buffer.from(dataUrl.slice(comma + 1), "base64");
+  if (!buf.length) throw new Error("图片数据为空");
+  if (buf.length > 5 * 1024 * 1024) throw new Error("图片超过 5MB，TinyPNG 免费版不支持");
+  const auth = "Basic " + Buffer.from("api:" + apiKey).toString("base64");
+
+  const c1 = new AbortController();
+  const t1 = setTimeout(function () { c1.abort(); }, 60000);
+  let shrinkResp;
+  try {
+    shrinkResp = await fetch("https://api.tinify.com/shrink", {
+      method: "POST",
+      headers: { "Content-Type": mime, "Authorization": auth },
+      body: buf,
+      signal: c1.signal
+    });
+  } catch (e) {
+    clearTimeout(t1);
+    throw new Error("TinyPNG 请求失败：" + (e.name === "AbortError" ? "超时(60s)" : (e.message || e)));
+  }
+  clearTimeout(t1);
+  let shrinkBody = {};
+  try { shrinkBody = await shrinkResp.json(); } catch (e) { /* ignore */ }
+  if (!shrinkResp.ok) {
+    const msg = shrinkBody.error || ("HTTP " + shrinkResp.status);
+    if (shrinkResp.status === 401) throw new Error("TinyPNG API Key 无效");
+    if (shrinkResp.status === 429) throw new Error("TinyPNG 月度配额已用尽");
+    if (shrinkResp.status === 422) throw new Error("TinyPNG 无法压缩该图片：" + msg);
+    throw new Error("TinyPNG 压缩失败：" + msg);
+  }
+  const out = shrinkBody.output || {};
+  const url = out.url;
+  if (!url) throw new Error("TinyPNG 未返回压缩结果");
+
+  const c2 = new AbortController();
+  const t2 = setTimeout(function () { c2.abort(); }, 60000);
+  let dlResp;
+  try {
+    dlResp = await fetch(url, { signal: c2.signal });
+  } catch (e) {
+    clearTimeout(t2);
+    throw new Error("压缩图下载失败：" + (e.name === "AbortError" ? "超时(60s)" : (e.message || e)));
+  }
+  clearTimeout(t2);
+  const dlBuf = Buffer.from(await dlResp.arrayBuffer());
+  if (!dlResp.ok || !dlBuf.length) throw new Error("压缩图下载失败：HTTP " + dlResp.status);
+  const ratio = typeof out.ratio === "number"
+    ? out.ratio
+    : (buf.length ? dlBuf.length / buf.length : 0);
+  return {
+    b64: dlBuf.toString("base64"),
+    mime: out.type || mime,
+    width: out.width || 0,
+    height: out.height || 0,
+    bytes: dlBuf.length,
+    originalBytes: buf.length,
+    ratio: ratio
+  };
+}
+
 function serveStatic(req, res, pathname) {
   let p = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.normalize(path.join(ROOT, p));
@@ -525,12 +769,13 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-function readBody(req) {
+function readBody(req, maxBytes) {
+  const limit = maxBytes || 1024 * 1024;
   return new Promise(function (resolve, reject) {
     let body = "";
     req.on("data", function (chunk) {
       body += chunk;
-      if (body.length > 1024 * 1024) {
+      if (body.length > limit) {
         reject(new Error("请求体过大"));
         req.destroy();
       }
@@ -553,11 +798,143 @@ function sendJson(res, code, obj) {
 
 const server = http.createServer(function (req, res) {
   const url = new URL(req.url, "http://localhost");
-  const pathname = decodeURIComponent(url.pathname);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch (e) {
+    sendJson(res, 400, { ok: false, error: "无效的路径编码" });
+    return;
+  }
   const startedAt = Date.now();
   const finish = function (code) {
     log(req.method + " " + pathname + " -> " + code + " " + ((Date.now() - startedAt) / 1000).toFixed(1) + "s");
   };
+
+  if (req.method === "GET" && pathname === "/api/agreement") {
+    sendJson(res, 200, {
+      ok: true,
+      version: AGREEMENT_VERSION,
+      title: AGREEMENT_TITLE,
+      content: AGREEMENT_CONTENT
+    });
+    finish(200);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/agreement/accept") {
+    readBody(req).then(function (body) {
+      const ver = String(body.version || "");
+      if (ver !== AGREEMENT_VERSION) {
+        sendJson(res, 400, { ok: false, error: "协议版本无效，请刷新页面后重试" });
+        finish(400);
+        return;
+      }
+      const cid = callerId(req);
+      acceptedAgreements.set(cid, ver);
+      persistAcceptedAgreements();
+      audit("agreement_accept", req, { version: ver });
+      sendJson(res, 200, { ok: true });
+      finish(200);
+    }).catch(function (e) {
+      sendJson(res, 400, { ok: false, error: e && e.message ? e.message : "请求格式错误" });
+      finish(400);
+    });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/download") {
+    readBody(req, 10 * 1024 * 1024).then(function (body) {
+      const ctx = {
+        caller: callerId(req),
+        ip: clientIp(req),
+        ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300)
+      };
+      if (acceptedAgreements.get(ctx.caller) !== AGREEMENT_VERSION) {
+        sendJson(res, 403, {
+          ok: false,
+          error: "请先阅读并同意《" + AGREEMENT_TITLE + "》",
+          needAgreement: true
+        });
+        finish(403);
+        return;
+      }
+      finalizeDownload(body, ctx).then(function (result) {
+        audit("download", ctx, {
+          jobId: body.jobId ? String(body.jobId) : "",
+          index: body.jobId ? (Math.max(0, parseInt(body.index, 10) || 0)) : "",
+          mode: body.jobId ? "job" : "upload",
+          width: result.width,
+          height: result.height,
+          bytes: result.bytes
+        });
+        const idx = body.jobId ? (Math.max(0, parseInt(body.index, 10) || 0)) : 0;
+        const fname = "shenbi-" +
+          (body.jobId ? String(body.jobId) : "img-" + Date.now()).slice(0, 40) +
+          "-" + idx + ".png";
+        res.writeHead(200, {
+          "Content-Type": "image/png",
+          "Cache-Control": "no-store",
+          "Content-Disposition": "attachment; filename=\"" + fname + "\""
+        });
+        res.end(result.buffer);
+        finish(200);
+      }).catch(function (e) {
+        sendJson(res, 500, { ok: false, error: "下载处理失败：" + (e && e.message ? e.message : "未知错误") });
+        finish(500);
+      });
+    }).catch(function (e) {
+      sendJson(res, 400, { ok: false, error: e && e.message ? e.message : "请求格式错误" });
+      finish(400);
+    });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/compress") {
+    readBody(req, 10 * 1024 * 1024).then(function (body) {
+      const ctx = {
+        caller: callerId(req),
+        ip: clientIp(req),
+        ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300)
+      };
+      const imageDataUrl = String(body.imageDataUrl || "");
+      if (!TINIFY_API_KEY) {
+        sendJson(res, 500, { ok: false, error: "压缩服务未配置 TINIFY_API_KEY，请联系管理员" });
+        finish(500);
+        return;
+      }
+      if (!imageDataUrl) {
+        sendJson(res, 400, { ok: false, error: "缺少图片数据" });
+        finish(400);
+        return;
+      }
+      compressWithTinyPng(imageDataUrl).then(function (result) {
+        audit("compress", ctx, {
+          width: result.width,
+          height: result.height,
+          bytes: result.bytes,
+          originalBytes: result.originalBytes,
+          ratio: +result.ratio.toFixed(4)
+        });
+        sendJson(res, 200, {
+          ok: true,
+          imageDataUrl: "data:" + result.mime + ";base64," + result.b64,
+          width: result.width,
+          height: result.height,
+          bytes: result.bytes,
+          originalBytes: result.originalBytes,
+          ratio: result.ratio
+        });
+        finish(200);
+      }).catch(function (e) {
+        sendJson(res, 502, { ok: false, error: e && e.message ? e.message : "压缩失败" });
+        finish(502);
+      });
+    }).catch(function (e) {
+      sendJson(res, 400, { ok: false, error: e && e.message ? e.message : "请求格式错误" });
+      finish(400);
+    });
+    return;
+  }
 
   if (req.method === "POST" && pathname === "/api/generate") {
     readBody(req).then(function (body) {
@@ -584,7 +961,23 @@ const server = http.createServer(function (req, res) {
         finish(400);
         return;
       }
-      const job = createJob(prompt, n, size, style, source, cfg);
+      const job = createJob(prompt, n, size, style, source, cfg, {
+        caller: callerId(req),
+        ip: clientIp(req),
+        ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300)
+      });
+      audit("generate", {
+        caller: callerId(req),
+        ip: clientIp(req),
+        ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300)
+      }, {
+        jobId: job.id,
+        prompt: String(prompt).slice(0, 1000),
+        n: n,
+        size: size,
+        style: style,
+        source: source
+      });
       sendJson(res, 202, { ok: true, jobId: job.id, status: job.status });
       finish(202);
     }).catch(function (e) {
@@ -601,6 +994,7 @@ const server = http.createServer(function (req, res) {
         apiKey: (body.apiKey || "").toString().trim(),
         model: (body.model || "").toString().trim()
       }).then(function (result) {
+        audit("debug", req, { base: String(body.baseURL || "").slice(0, 200) });
         sendJson(res, 200, { ok: true, data: result });
         finish(200);
       });
@@ -660,5 +1054,8 @@ setInterval(function () {
 server.listen(PORT, "0.0.0.0", function () {
   log("神笔马良服务已启动: http://0.0.0.0:" + PORT);
   log("静态目录: " + ROOT);
+  loadAcceptedAgreements();
+  cleanupAuditLogs();
+  setInterval(cleanupAuditLogs, 24 * 3600 * 1000).unref();
   if (!IMG_URL) log("警告: IMG_URL 未设置，/api/generate 将不可用");
 });

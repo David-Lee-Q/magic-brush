@@ -19,6 +19,8 @@ done
 
 export IMG_URL="${IMG_URL:-https://8000-f7c2c497f2f22e08.code.cosmoplat.cn/sse}"
 export IMG_TOKEN="${IMG_TOKEN:-1792bf9c72a069e4d875790321e95c93a87320dc712398b4}"
+# TinyPNG API Key（tinypng.com/developers 获取，免费 500 张/月）
+export TINIFY_API_KEY="${TINIFY_API_KEY:-BfJzhwvtdW22vLr1MyfXHLdrvkqjPYnm}"
 export PORT
 
 cd "$WORKDIR" || { echo "工作目录不存在: $WORKDIR" >&2; exit 2; }

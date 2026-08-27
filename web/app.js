@@ -3,7 +3,10 @@
 
   var LS_SETTINGS = "mb.settings";
   var LS_HISTORY = "mb.history";
+  var LS_CALLER = "mb.callerId";
+  var LS_AGREEMENT = "mb.agreement.v";
   var MAX_HISTORY = 50;
+  var AGREEMENT_CHECKED = false;
 
   var DEFAULT_SETTINGS = {
     datasource: "builtin",
@@ -61,6 +64,25 @@
   };
 
   var $ = function (id) { return document.getElementById(id); };
+
+  function getCallerId() {
+    try {
+      var cid = localStorage.getItem(LS_CALLER);
+      if (cid) return cid;
+    } catch (e) { /* ignore */ }
+    var id = uniqueId();
+    try { localStorage.setItem(LS_CALLER, id); } catch (e) { /* ignore */ }
+    return id;
+  }
+
+  function fetchJSON(url, options) {
+    options = options || {};
+    var headers = {};
+    if (options.headers) Object.assign(headers, options.headers);
+    headers["X-Caller-Id"] = getCallerId();
+    options.headers = headers;
+    return fetch(url, options);
+  }
 
   function loadSettings() {
     try {
@@ -160,7 +182,7 @@
     var attempts = 0;
     var maxAttempts = 360;
     function tick() {
-      return fetch("/api/status/" + jobId).then(function (resp) {
+      return fetchJSON("/api/status/" + jobId).then(function (resp) {
         return resp.json().catch(function () { return {}; });
       }).then(function (body) {
         if (onProgress) onProgress(body);
@@ -189,7 +211,7 @@
   }
 
   function generateJob(payload, onProgress) {
-    return fetch("/api/generate", {
+    return fetchJSON("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -246,12 +268,80 @@
     img.src = dataUrl;
   }
 
-  function handleDownload(image, filename) {
+  function renderAgreementText(content) {
+    var html = escHtml(content || "")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    $("agreement-body").innerHTML = html;
+  }
+
+  function showAgreementModal(body) {
+    return new Promise(function (resolve) {
+      $("agreement-title").textContent = (body && body.title) || "用户协议";
+      renderAgreementText(body && body.content);
+      $("agreement-modal").classList.remove("hidden");
+      var btn = $("btn-agreement-accept");
+      btn.onclick = function () { resolve(); };
+    });
+  }
+
+  function ensureAgreement() {
+    if (AGREEMENT_CHECKED) return Promise.resolve();
+    return fetchJSON("/api/agreement").then(function (resp) {
+      return resp.json().catch(function () { return {}; });
+    }).then(function (body) {
+      if (!body || !body.ok || !body.version) {
+        AGREEMENT_CHECKED = true;
+        return;
+      }
+      var local = null;
+      try { local = localStorage.getItem(LS_AGREEMENT); } catch (e) { /* ignore */ }
+      if (local === String(body.version)) {
+        AGREEMENT_CHECKED = true;
+        return;
+      }
+      return showAgreementModal(body).then(function () {
+        return fetchJSON("/api/agreement/accept", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: body.version })
+        }).then(function (resp) {
+          return resp.json().catch(function () { return {}; });
+        }).then(function (b) {
+          if (!b || !b.ok) throw new Error((b && b.error) || "协议确认失败，请重试");
+          try { localStorage.setItem(LS_AGREEMENT, String(body.version)); } catch (e) { /* ignore */ }
+          AGREEMENT_CHECKED = true;
+          $("agreement-modal").classList.add("hidden");
+        });
+      });
+    }).catch(function (err) {
+      showToast((err && err.message) || "用户协议加载失败");
+    });
+  }
+
+  function taskShortName(prompt) {
+    var base = String(prompt || "").trim()
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ")
+      .replace(/\s+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (base.length > 12) base = base.slice(0, 12);
+    base = base.replace(/[，。、！？；：,.!?;:]+$/g, "").replace(/_+$/g, "");
+    return base;
+  }
+
+  function smartFilename(prompt, index, ext) {
+    var name = taskShortName(prompt) || "任务";
+    var n = (index == null || isNaN(Number(index))) ? 1 : Number(index) + 1;
+    name += "(" + n + ")";
+    return ext ? name + "." + ext : name;
+  }
+
+  function handleDownloadRaw(image, filename) {
     if (image.b64 || /^data:image\//i.test(image.src)) {
       downloadFromDataUrl(image.src, filename);
-      return;
+      return Promise.resolve();
     }
-    fetch(image.src).then(function (resp) {
+    return fetch(image.src).then(function (resp) {
       if (!resp.ok) throw new Error();
       return resp.blob();
     }).then(function (blob) {
@@ -263,12 +353,87 @@
     });
   }
 
-  function renderImages(images, grid) {
+  function handleDownload(image, filename) {
+    if (image && image.prompt) {
+      filename = smartFilename(image.prompt, image.index == null ? 0 : image.index, "png");
+    }
+    return ensureAgreement().then(function () {
+      var payload = null;
+      if (image && image.jobId) {
+        payload = { jobId: image.jobId, index: (image.index == null ? 0 : image.index) };
+      } else if (image && image.src && /^data:image\//i.test(image.src)) {
+        payload = { imageDataUrl: image.src };
+      }
+      if (!payload) return handleDownloadRaw(image, filename);
+      return fetchJSON("/api/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }).then(function (resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function () { return {}; }).then(function (b) {
+            if (b && b.needAgreement) {
+              try { localStorage.removeItem(LS_AGREEMENT); } catch (e) { /* ignore */ }
+              AGREEMENT_CHECKED = false;
+              return ensureAgreement().then(function () {
+                return handleDownload(image, filename);
+              });
+            }
+            throw new Error((b && b.error) || ("下载失败（HTTP " + resp.status + "）"));
+          });
+        }
+        return resp.blob();
+      }).then(function (blob) {
+        if (!blob) return;
+        var url = URL.createObjectURL(blob);
+        downloadByUrl(url, filename);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 6000);
+      });
+    }).catch(function (err) {
+      showToast((err && err.message) || "下载失败");
+    });
+  }
+
+  function compressImage(image, filename) {
+    var src = image && image.src;
+    if (!src) {
+      showToast("缺少图片数据");
+      return Promise.resolve();
+    }
+    var base = (image && image.prompt)
+      ? smartFilename(image.prompt, image.index == null ? 0 : image.index, null)
+      : String(filename || "").replace(/\.[a-z0-9]+$/i, "");
+    showToast("正在压缩…");
+    return fetchJSON("/api/compress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageDataUrl: src })
+    }).then(function (resp) {
+      return resp.json().catch(function () { return {}; });
+    }).then(function (b) {
+      if (!b.ok) throw new Error(b.error || "压缩失败");
+      var ext = /image\/jpe?g/i.test(b.imageDataUrl) ? "jpg" : "png";
+      var savedPct = b.originalBytes ? Math.round((1 - b.bytes / b.originalBytes) * 100) : 0;
+      showToast("压缩完成，体积减少 " + savedPct + "%");
+      var a = document.createElement("a");
+      a.href = b.imageDataUrl;
+      a.download = base + "." + ext;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }).catch(function (err) {
+      showToast((err && err.message) || "压缩失败");
+    });
+  }
+
+  function renderImages(images, grid, prompt) {
     grid = grid || $("task-list");
     grid.innerHTML = "";
     images = (images || []).map(function (item) {
-      if (typeof item === "string") return { src: item, b64: true };
-      return item;
+      if (typeof item === "string") return { src: item, b64: true, prompt: prompt || "" };
+      var o = Object.assign({}, item);
+      if (prompt && !o.prompt) o.prompt = prompt;
+      return o;
     });
     state.lastImages = images;
 
@@ -301,6 +466,15 @@
         handleDownload(img, "shenbi-" + idx + "-" + Date.now() + ".png");
       });
       actions.appendChild(dl);
+      var cp = document.createElement("button");
+      cp.type = "button";
+      cp.className = "btn";
+      cp.textContent = "压缩";
+      cp.addEventListener("click", function (e) {
+        e.stopPropagation();
+        compressImage(img, "shenbi-compressed-" + idx + "-" + Date.now());
+      });
+      actions.appendChild(cp);
       card.appendChild(actions);
 
       card.addEventListener("click", function () {
@@ -360,7 +534,8 @@
       statusEl: block.querySelector(".task-status"),
       bar: block.querySelector(".task-progress-bar"),
       rendered: 0,
-      images: []
+      images: [],
+      prompt: prompt
     };
   }
 
@@ -378,15 +553,17 @@
       "</div>" +
       '<div class="task-grid"></div>';
     list.prepend(block);
-    renderImages(images, block.querySelector(".task-grid"));
+    renderImages(images, block.querySelector(".task-grid"), prompt);
   }
 
-  function renderTaskImage(t, index, src) {
+  function renderTaskImage(t, index, item) {
     var card = t.grid.children[index];
     if (!card) return;
     card.classList.remove("is-loading");
     card.classList.add("loading-mask");
-    var imgObj = { src: src, b64: true };
+    var imgObj = (typeof item === "string")
+      ? { src: item, b64: true, jobId: t.jobId, index: index, prompt: t.prompt }
+      : item;
     var im = document.createElement("img");
     im.alt = "生成图片 " + (index + 1);
     im.loading = "lazy";
@@ -402,24 +579,35 @@
       handleDownload(imgObj, "shenbi-" + index + "-" + Date.now() + ".png");
     });
     actions.appendChild(dl);
+    var cp = document.createElement("button");
+    cp.type = "button";
+    cp.className = "btn";
+    cp.textContent = "压缩";
+    cp.addEventListener("click", function (e) {
+      e.stopPropagation();
+      compressImage(imgObj, "shenbi-compressed-" + index + "-" + Date.now());
+    });
+    actions.appendChild(cp);
     card.appendChild(actions);
     card.addEventListener("click", function () {
       openLightbox(imgObj, index, t.images);
     });
     im.onload = function () { card.classList.remove("loading-mask"); };
     im.onerror = function () { card.classList.remove("loading-mask"); im.style.display = "none"; };
-    im.src = src;
+    im.src = imgObj.src;
     if (im.complete && im.naturalWidth > 0) card.classList.remove("loading-mask");
   }
 
   function applyTaskCompleted(t, body) {
     var done = body.completed || (body.images || []).length || 0;
     var total = body.total || t.n || done;
+    if (body.jobId) t.jobId = body.jobId;
     for (var i = t.rendered; i < done; i++) {
       var src = body.images && body.images[i];
       if (!src) break;
-      t.images.push(src);
-      renderTaskImage(t, i, src);
+      var imgObj = { src: src, b64: true, jobId: t.jobId, index: i, prompt: t.prompt };
+      t.images.push(imgObj);
+      renderTaskImage(t, i, imgObj);
       t.rendered += 1;
     }
     t.bar.style.width = (total ? Math.round(done / total * 100) : 0) + "%";
@@ -470,6 +658,8 @@
     applyLightboxScale();
     var dl = $("lightbox-download");
     dl.onclick = downloadCurrentLightbox;
+    var cp = $("lightbox-compress");
+    cp.onclick = compressCurrentLightbox;
     var multi = list.length > 1;
     $("btn-prev-lightbox").classList.toggle("hidden-nav", !multi);
     $("btn-next-lightbox").classList.toggle("hidden-nav", !multi);
@@ -482,6 +672,14 @@
     var current = toImageObject(list[i] || list[0]);
     if (!current) return;
     handleDownload(current, "shenbi-" + i + "-" + Date.now() + ".png");
+  }
+
+  function compressCurrentLightbox() {
+    var list = state.lightboxImages;
+    var i = state.lightboxIndex;
+    var current = toImageObject(list[i] || list[0]);
+    if (!current) return;
+    compressImage(current, "shenbi-compressed-" + i + "-" + Date.now());
   }
 
   function initLightboxLongPress() {
@@ -753,7 +951,10 @@
         im.alt = "缩略图";
         im.addEventListener("click", function (e) {
           e.stopPropagation();
-          openLightbox({ src: src, b64: true }, i, rec.images);
+          var imgs = (rec.images || []).map(function (s) {
+            return { src: s, b64: true, prompt: rec.prompt };
+          });
+          openLightbox(imgs[i] || { src: src, b64: true, prompt: rec.prompt }, i, imgs);
         });
         thumbs.appendChild(im);
       });
@@ -1044,7 +1245,7 @@
     var resultEl = $("debug-result");
     resultEl.innerHTML = '<div class="debug-loading">正在测试…（模型列表超时 15s，生成请求超时 20s）</div>';
     $("btn-run-debug").disabled = true;
-    fetch("/api/debug/model", {
+    fetchJSON("/api/debug/model", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cfg)
@@ -1244,6 +1445,7 @@
     seedMockHistory();
     renderHistory();
     bindEvents();
+    ensureAgreement();
   }
 
   document.addEventListener("DOMContentLoaded", init);

@@ -739,6 +739,7 @@ select { cursor: pointer; }
   z-index: 3;
   display: flex;
   justify-content: center;
+  gap: 8px;
   padding: 8px 0 4px;
 }
 
@@ -884,6 +885,8 @@ select { cursor: pointer; }
   justify-content: center;
   gap: 10px;
   margin-bottom: 10px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .lightbox-tool {
@@ -897,6 +900,7 @@ select { cursor: pointer; }
   font-size: 16px;
   cursor: pointer;
   box-shadow: var(--shadow);
+  white-space: nowrap;
 }
 
 .lightbox-tool:hover { background: #f0ece2; }
@@ -950,7 +954,18 @@ select { cursor: pointer; }
   padding: 0 14px;
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   text-decoration: none;
+  box-shadow: var(--shadow);
+}
+
+#lightbox-compress {
+  width: auto;
+  height: 34px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
   box-shadow: var(--shadow);
 }
 
@@ -1042,6 +1057,21 @@ select { cursor: pointer; }
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.modal-agreement { width: 560px; }
+
+.agreement-body {
+  max-height: 58vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.7;
+  font-size: 14px;
+  color: var(--ink);
+  background: #f8f5ee;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
 }
 
 .btn-ghost-dark {
@@ -1223,18 +1253,21 @@ code.debug-err { background: #fdecea; color: var(--err); }
   .history-item-del { opacity: 1; }
 
   .lightbox-inner { width: 92vw; display: flex; flex-direction: column; align-items: center; }
-  .lightbox-toolbar { flex-wrap: wrap; }
+  .lightbox-toolbar { flex-wrap: nowrap; gap: 6px; }
+  .lightbox-tool { padding: 0 8px; }
   .lightbox-viewport { max-width: 94vw; max-height: 70vh; }
   .lightbox-prev { left: 6px; }
   .lightbox-next { right: 6px; }
   .lightbox-nav { width: 38px; height: 38px; top: 56%; }
-  #lightbox-download {
+  #lightbox-download,
+  #lightbox-compress {
     position: static;
     transform: none;
     margin-top: 0;
     width: auto;
     min-height: 0;
     height: 38px;
+    padding: 0 12px;
   }
   .lightbox-tool { height: 38px; }
 

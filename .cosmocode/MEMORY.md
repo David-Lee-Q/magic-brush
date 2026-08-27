@@ -74,6 +74,45 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 自定义接口生成耗时与尺寸强相关（实测 cosmo-mind-image）：256x256 约 5s、512 约 10-30s、1024 约 80-130s；前端自定义模式生成时提示"预计 1-3 分钟"。
   - 尺寸支持：前端新增电脑屏幕（1280x720/1280x800/1024x768）与手机屏幕（720x1280/720x1560/768x1024）预设，均带比例标注；另有"自定义尺寸…"选项（宽高 64-2048，后端透传）。**内置 imagegen 服务有尺寸白名单**（仅 256x256/512x512/1024x1024/1536x1024/1024x1536/1792x1024/1024x1792），任意尺寸会报 Invalid enum value 错误，后端 nearestBuiltinSize() 按宽高比映射到最近预设（如 640x360→1792x1024）并在日志记录映射；**自定义 Xinference 无白名单，任意尺寸透传**（实测 640x384 返回精确 640x384 JPEG）。
 
+[畸形编码路径可导致后端进程崩溃（已修复）]
+- Date: 2026-08-18
+- Context: Agent 编写安全审计结论时对 server-http.mjs 做黑盒验证发现
+- Category: 排错调试
+- Instructions:
+  - server-http.mjs 中 decodeURIComponent(url.pathname) 对非法转义路径（如 /%）会抛 URIError，异常冒泡导致 Node 进程崩溃（拒绝服务风险）。已用 try/catch 包裹、解析失败返回 400。今后处理 URL pathname 解码必须做异常容错，验证用 curl "http://127.0.0.1:8000/%" 应返回 400 且进程存活。
+
+[内置 imagegen 出图带右下水印（去水印仅限合规下载通道）]
+- Date: 2026-08-27
+- Context: Agent 排查用户"输出图片带水印"反馈，随后按用户要求历经"撤销→合规功能重新启用（仅下载路径）"
+- Category: 排错调试
+- Instructions:
+  - 内置 imagegen 服务返回的图片在右下角叠加"AI生成"半透明文字水印（白色文字+深色阴影，宽约 62-80px、高 24-25px，贴近右下边角，像素尺寸固定、不随图片尺寸成比例缩放）。
+  - 曾实现后端去水印：server-http.mjs 把每张图传给 .mcp/imagegen-bridge/dewatermark.py（python3+opencv，对右下角矩形做整块 cv2.inpaint(TELEA)，区域边距 max(2,0.2%)px、宽 max(80,9.5%w)、高 max(34,3.4%h)）。实测水印区边缘像素 438→4、区外内容零改动。
+  - **2026-08-27 上午用户明确要求撤销去水印**，移除 spawn import、dewatermark 函数及 runJob 中调用，恢复原图直出。
+  - **2026-08-27 下午合规需求重新启用去水印，但仅限"用户主动申请下载"路径**（POST /api/download），生成（/api/generate）与展示/轮询（/api/status）仍返回带显式标识原图。处理脚本为 .mcp/imagegen-bridge/finalize-download.py（cv2.inpaint 去右下角显式标识 + Pillow 写 PNG tEXt 隐式元数据：app/job/index/caller/generated_at/agreement_version/note），stdout 第一行"宽x高"、第二行 PNG base64（无前缀）。
+  - 踩坑教训（仍有效）：水印像素尺寸固定，若再实现检测/修复区域必须给绝对像素下限（宽≥80、高≥34），不能只用百分比。
+
+[TinyPNG 压缩集成（后端内置 key）]
+- Date: 2026-08-27
+- Context: Agent 按用户要求集成 https://tinypng.com/ 功能，后按用户要求改为后端内置 key
+- Category: 运维部署
+- Instructions:
+  - 压缩走后端代理 POST /api/compress（body 仅 {imageDataUrl}，不再传 key）：key 内置服务端，从环境变量 TINIFY_API_KEY 读取（start.sh 有占位行，注释提示填入 tinypng.com/developers 获取的 key），前端无任何 key 配置入口。
+  - 后端 compressWithTinyPng：POST https://api.tinypng.com/shrink（Basic 认证 api:<key>，body 为图片原始二进制，Content-Type 取 dataURL mime），60s 超时；再 GET output.url 取压缩图转 base64 返回。单图上限 5MB（TinyPNG 免费版限制），free 500 张/月；401=key 无效、429=配额用尽、422=无法压缩。未配置 TINIFY_API_KEY 时接口返回 500 "压缩服务未配置 TINIFY_API_KEY"。
+  - 前端入口：图片卡片与灯箱「压缩」按钮（compressImage()），成功后 toast 显示体积减少百分比并自动下载；文件名按返回 mime 定扩展名（jpg/png）。
+  - 审计 action=compress，记录 width/height/bytes/originalBytes/ratio，不含 key。
+  - 验证方式：注入假 TINIFY_API_KEY 后请求返回 502 "TinyPNG API Key 无效" 即说明链路可达 api.tinypng.com 且 key 读取正确。
+
+[合规功能：用户协议 + 审计日志（≥6 个月）+ 调用人标识]
+- Date: 2026-08-27
+- Context: Agent 按用户四条合规要求实现服务侧功能时发现
+- Category: 运维部署
+- Instructions:
+  - 下载通道 POST /api/download：body 支持 {jobId,index}（内存任务内取图）或 {imageDataUrl}（历史图直传，readBody 上限 10MB）；未同意当前版本协议返回 403 {needAgreement:true}；成功后输出 PNG（去显式标识+隐式元数据），Content-Disposition attachment。
+  - 用户协议：GET /api/agreement 返回 {version,title,content}（版本常量 AGREEMENT_VERSION="2026-08-27"）；POST /api/agreement/accept 校验版本后记录到内存 Map 并持久化 logs/agreements.json（重启自动加载）。前端首次进入弹协议窗（#agreement-modal），同意后存 localStorage mb.agreement.v；下载遇 403 自愈：清本地版本标记→重新弹协议→重试。
+  - 审计日志：/workspace/logs/audit/YYYY-MM-DD.jsonl，JSONL 按天分片，启动时清理超 180 天的分片（AUDIT_RETENTION_DAYS=180）。action 类型：generate（请求，含 prompt 截 1000/n/size/style/source，不含 apiKey）、generate_complete（输出，含 total/done/elapsedMs/status）、download（输出，含 jobId/index/mode/width/height/bytes）、agreement_accept、debug。每条含 ts(+08:00)/caller/ip/ua。
+  - 调用人标识：无账号体系，前端首次访问生成 UUID 存 localStorage mb.callerId，所有请求带 X-Caller-Id 头（fetchJSON 统一注入），后端 callerId() 解析，匿名降级为 "anonymous"。清缓存会换新 UUID，审计靠 UUID+IP+UA 组合定位。
+
 [帮助文档开发规范]
 - Date: 2026-08-12
 - Context: 用户提供《通用帮助文档开发指南》skill，要求基于 README 新建给用户看的帮助文档

@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="神笔马良">
-<link rel="stylesheet" href="styles.css?v=52">
+<link rel="stylesheet" href="styles.css?v=55">
 </head>
 <body>
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -271,6 +271,7 @@
       <button id="btn-zoom-in" class="lightbox-tool" type="button" aria-label="放大">+</button>
       <button id="btn-zoom-reset" class="lightbox-tool" type="button">还原</button>
       <a id="lightbox-download" class="btn btn-primary btn-small" download>下载</a>
+      <button id="lightbox-compress" class="btn btn-primary btn-small" type="button">压缩</button>
       <button id="btn-close-lightbox" class="lightbox-tool lightbox-close" type="button" aria-label="关闭">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <line x1="18" y1="6" x2="6" y2="18"/>
@@ -288,6 +289,18 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
     </button>
     <div id="lightbox-counter" class="lightbox-counter"></div>
+  </div>
+</div>
+
+<div id="agreement-modal" class="modal-mask hidden">
+  <div class="modal modal-agreement">
+    <div class="modal-header">
+      <h2 id="agreement-title">用户协议</h2>
+    </div>
+    <div class="agreement-body" id="agreement-body"></div>
+    <div class="modal-actions">
+      <button id="btn-agreement-accept" class="btn btn-primary" type="button">已阅读并同意</button>
+    </div>
   </div>
 </div>
 
@@ -389,6 +402,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=38"></script>
+<script src="app.js?v=43"></script>
 </body>
 </html>
