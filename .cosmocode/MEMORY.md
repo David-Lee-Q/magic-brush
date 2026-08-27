@@ -113,6 +113,14 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 审计日志：/workspace/logs/audit/YYYY-MM-DD.jsonl，JSONL 按天分片，启动时清理超 180 天的分片（AUDIT_RETENTION_DAYS=180）。action 类型：generate（请求，含 prompt 截 1000/n/size/style/source，不含 apiKey）、generate_complete（输出，含 total/done/elapsedMs/status）、download（输出，含 jobId/index/mode/width/height/bytes）、agreement_accept、debug。每条含 ts(+08:00)/caller/ip/ua。
   - 调用人标识：无账号体系，前端首次访问生成 UUID 存 localStorage mb.callerId，所有请求带 X-Caller-Id 头（fetchJSON 统一注入），后端 callerId() 解析，匿名降级为 "anonymous"。清缓存会换新 UUID，审计靠 UUID+IP+UA 组合定位。
 
+[每次提交都更新前端页面版本信息]
+- Date: 2026-08-27
+- Context: 用户在本轮合规下载/TinyPNG 压缩功能提交后提出
+- Category: 工作流协作
+- Instructions:
+  - 每次 git 提交前，必须同步更新前端页面版本信息：在 web/index.html 的 #version-modal 版本列表中新增一条版本记录（version-tag + version-desc），描述本次提交覆盖的功能，放在列表最上方（最新在上），版本号递增（如 v1.2.0 → v1.3.0），日期用当天。
+  - 与静态资源 ?v=N 版本号 +1 同步执行，二者缺一不可。
+
 [帮助文档开发规范]
 - Date: 2026-08-12
 - Context: 用户提供《通用帮助文档开发指南》skill，要求基于 README 新建给用户看的帮助文档
