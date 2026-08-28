@@ -936,6 +936,41 @@ const server = http.createServer(function (req, res) {
     return;
   }
 
+  if (req.method === "POST" && pathname === "/api/generate-3d") {
+    readBody(req).then(function (body) {
+      const prompt = (body.prompt || "").toString().trim();
+      if (!prompt) {
+        sendJson(res, 400, { ok: false, error: "提示词不能为空" });
+        finish(400);
+        return;
+      }
+      const n = Math.min(4, Math.max(1, parseInt(body.n, 10) || 1));
+      const job = createJob(prompt, n, "256x256", "3d_render", "builtin", null, {
+        caller: callerId(req),
+        ip: clientIp(req),
+        ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300)
+      });
+      audit("generate", {
+        caller: callerId(req),
+        ip: clientIp(req),
+        ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300)
+      }, {
+        jobId: job.id,
+        prompt: String(prompt).slice(0, 1000),
+        n: n,
+        size: "256x256",
+        style: "3d_render",
+        source: "builtin"
+      });
+      sendJson(res, 202, { ok: true, jobId: job.id, status: job.status });
+      finish(202);
+    }).catch(function (e) {
+      sendJson(res, 400, { ok: false, error: e && e.message ? e.message : "请求格式错误" });
+      finish(400);
+    });
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/api/generate") {
     readBody(req).then(function (body) {
       const prompt = (body.prompt || "").toString().trim();
