@@ -944,7 +944,7 @@ const server = http.createServer(function (req, res) {
         finish(400);
         return;
       }
-      const n = Math.min(4, Math.max(1, parseInt(body.n, 10) || 1));
+      const n = 1;
       const job = createJob(prompt, n, "256x256", "3d_render", "builtin", null, {
         caller: callerId(req),
         ip: clientIp(req),
