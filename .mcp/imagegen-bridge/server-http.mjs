@@ -192,7 +192,8 @@ const STYLE_DESC = {
   holographic: "holographic iridescent effect, prismatic light reflections, futuristic translucent surfaces",
   minimal: "minimalist composition, clean design, lots of negative space, simple elegant",
   retro_hk: "retro Hong Kong style, colorful neon signs, nostalgic 80s city streets, cinematic",
-  impressionism: "impressionist painting, loose expressive brushwork, luminous play of light and color"
+  impressionism: "impressionist painting, loose expressive brushwork, luminous play of light and color",
+  app_icon: "app icon design, flat vector style, bold simple shapes, centered composition, clean solid background, mobile app icon, crisp edges, vivid brand colors"
 };
 
 const TRANSLATE_MODEL = "cosmo-mind-nothink";
@@ -936,6 +937,7 @@ const server = http.createServer(function (req, res) {
     return;
   }
 
+  // 生成天星应用 icon：固定 app_icon 风格、256x256、每次 1 张，免 key（内置通道）
   if (req.method === "POST" && pathname === "/api/generate-3d") {
     readBody(req).then(function (body) {
       const prompt = (body.prompt || "").toString().trim();
@@ -945,7 +947,9 @@ const server = http.createServer(function (req, res) {
         return;
       }
       const n = 1;
-      const job = createJob(prompt, n, "256x256", "3d_render", "builtin", null, {
+      const style = "app_icon";
+      const sendPrompt = [prompt, STYLE_DESC[style]].filter(Boolean).join(", ");
+      const job = createJob(sendPrompt, n, "256x256", "", "builtin", null, {
         caller: callerId(req),
         ip: clientIp(req),
         ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300)
@@ -959,7 +963,7 @@ const server = http.createServer(function (req, res) {
         prompt: String(prompt).slice(0, 1000),
         n: n,
         size: "256x256",
-        style: "3d_render",
+        style: "app_icon",
         source: "builtin"
       });
       sendJson(res, 202, { ok: true, jobId: job.id, status: job.status });
