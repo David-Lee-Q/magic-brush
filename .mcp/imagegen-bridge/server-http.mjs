@@ -193,7 +193,7 @@ const STYLE_DESC = {
   minimal: "minimalist composition, clean design, lots of negative space, simple elegant",
   retro_hk: "retro Hong Kong style, colorful neon signs, nostalgic 80s city streets, cinematic",
   impressionism: "impressionist painting, loose expressive brushwork, luminous play of light and color",
-  app_icon: "app icon design, flat vector style, bold simple shapes, centered composition, clean solid background, mobile app icon, crisp edges, vivid brand colors"
+  app_icon: "minimalist sci-fi tech app icon design, flat vector style, one simple centered subject, clean geometric shapes, plenty of negative space, simple solid background, subtle tech accent color, crisp edges, no text, no clutter"
 };
 
 const TRANSLATE_MODEL = "cosmo-mind-nothink";
@@ -938,8 +938,11 @@ const server = http.createServer(function (req, res) {
   }
 
   // 生成天星应用 icon：固定 app_icon 风格、256x256、每次 1 张，免 key（内置通道）
-  if (req.method === "POST" && pathname === "/api/generate-3d") {
-    readBody(req).then(function (body) {
+  if ((req.method === "POST" || req.method === "GET") && pathname === "/api/generate-3d") {
+    const bodyPromise = req.method === "GET"
+      ? Promise.resolve({ prompt: url.searchParams.get("prompt") || "" })
+      : readBody(req);
+    bodyPromise.then(function (body) {
       const prompt = (body.prompt || "").toString().trim();
       if (!prompt) {
         sendJson(res, 400, { ok: false, error: "提示词不能为空" });

@@ -135,6 +135,7 @@ node server-http.mjs
 |------|------|
 | `POST /api/generate` | 提交生成任务，body 含 `source`(builtin/custom)、`prompt`、`n`、`size`、`style`；custom 需 `baseURL`/`apiKey`/`model`，图生图附 `imageDataUrl` |
 | `POST /api/generate-3d` | 生成天星应用 icon 专用接口：免 key，body 仅需 `prompt`；固定 `app_icon` 风格、`size=256x256`、每次 1 张、内置通道；返回 jobId 后轮询 `/api/status/:jobId` |
+| `GET /api/generate-3d` | 同上，GET 方式：`?prompt=` 查询参数传提示词（URL 编码），其余行为一致 |
 | `GET /api/status/:jobId` | 轮询任务状态：`pending`/`processing`/`done`/`error`，完成时返回 `images`（base64 dataURL 数组） |
 | `POST /api/debug/model` | 自定义接口连通性检测：归一化 base、模型列表、生成测试（含耗时/响应体） |
 | `GET /api/agreement` | 获取用户协议（版本/标题/内容） |
