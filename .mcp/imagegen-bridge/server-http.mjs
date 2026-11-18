@@ -193,7 +193,7 @@ const STYLE_DESC = {
   minimal: "minimalist composition, clean design, lots of negative space, simple elegant",
   retro_hk: "retro Hong Kong style, colorful neon signs, nostalgic 80s city streets, cinematic",
   impressionism: "impressionist painting, loose expressive brushwork, luminous play of light and color",
-  app_icon: "minimalist sci-fi tech app icon design, flat vector style, one simple centered subject, clean geometric shapes, plenty of negative space, simple solid background, subtle tech accent color, crisp edges, no text, no clutter"
+  app_icon: "3D rendered app icon, high quality 3D render, two color palette design, clean solid single color background, one centered element, simple minimal 3D shape, soft studio lighting, glossy finish, no text, no clutter"
 };
 
 const TRANSLATE_MODEL = "cosmo-mind-nothink";
@@ -390,6 +390,16 @@ async function runJob(job, prompt, total, size, style, source, cfg) {
       }
       if (out.images && out.images.length) {
         job.images.push(out.images[0]);
+        if (job.ctx && job.ctx.finalize) {
+          const idx = job.images.length - 1;
+          try {
+            const fin = await finalizeDownload({ jobId: job.id, index: idx }, job.ctx);
+            job.images[idx] = "data:image/png;base64," + fin.buffer.toString("base64");
+            log("job " + job.id + " 第" + (i + 1) + "/" + total + " 张已去显式标识并写入隐式元数据");
+          } catch (e) {
+            log("job " + job.id + " 第" + (i + 1) + " 张去显式标识失败，返回原图: " + (e.message || e));
+          }
+        }
         done += 1;
         job.completed = done;
         log("job " + job.id + " 第" + (i + 1) + "/" + total + " 张完成 已用=" + ((Date.now() - started) / 1000).toFixed(1) + "s");
@@ -955,7 +965,8 @@ const server = http.createServer(function (req, res) {
       const job = createJob(sendPrompt, n, "256x256", "", "builtin", null, {
         caller: callerId(req),
         ip: clientIp(req),
-        ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300)
+        ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 300),
+        finalize: true
       });
       audit("generate", {
         caller: callerId(req),
